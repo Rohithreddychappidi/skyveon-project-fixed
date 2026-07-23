@@ -1,0 +1,325 @@
+// Skyveon Learning Hub — database schema
+// Provider is "postgresql" throughout, so this works unchanged against
+// Neon now and a self-hosted Postgres instance at deploy time — only
+// DATABASE_URL changes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------
+
+enum Role {
+  MASTER_ADMIN
+  ADMIN
+  EMPLOYEE
+}
+
+// Granular permissions the master admin can grant to a regular ADMIN.
+// MASTER_ADMIN implicitly has all of these — this list only matters for
+// the ADMIN role. See middleware/auth.ts requirePermission().
+enum AdminPermission {
+  MANAGE_EMPLOYEES
+  MANAGE_COURSES
+  MANAGE_ASSIGNMENTS
+  VIEW_PROGRESS
+  MANAGE_CMS
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum LessonType {
+  VIDEO
+  PDF
+  PPT
+  DOC
+  IMAGE
+  LINK
+  ASSIGNMENT
+}
+
+enum CompletionStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum AssignmentTargetType {
+  INDIVIDUAL
+  DEPARTMENT
+}
+
+enum ConversionStatus {
+  NOT_REQUIRED
+  PENDING
+  DONE
+  FAILED
+}
+
+// -----------------------------------------------------------------------
+// Core models
+// -----------------------------------------------------------------------
+
+model Department {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users       User[]
+  assignments Assignment[]
+
+  @@map("departments")
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  name         String
+  passwordHash String? // null until the employee completes setup
+  role         Role       @default(EMPLOYEE)
+  status       UserStatus @default(ACTIVE)
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  // Only meaningful for role = ADMIN. Granted by a MASTER_ADMIN via
+  // /api/admins. MASTER_ADMIN and EMPLOYEE ignore this field entirely.
+  adminPermissions AdminPermission[]
+
+  isDeleted Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  lastLoginAt DateTime?
+
+  refreshTokens     RefreshToken[]
+  authTokens        AuthToken[]
+  createdCourses    Course[]        @relation("CourseCreatedBy")
+  assignmentsMade   Assignment[]    @relation("AssignedBy")
+  assignmentsGot    Assignment[]    @relation("AssignedToUser")
+  progress          Progress[]
+  activityLogs      ActivityLog[]
+  lessonSubmissions LessonSubmission[]
+  reviewedSubmissions LessonSubmission[] @relation("ReviewedBy")
+
+  @@map("users")
+}
+
+// Access + refresh token pairs (refresh tokens are stored hashed so a DB
+// leak alone can't be used to mint new sessions).
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+enum AuthTokenPurpose {
+  SETUP_PASSWORD
+  RESET_PASSWORD
+}
+
+// Single-use links for "set up your account" and "forgot password" emails.
+model AuthToken {
+  id        String            @id @default(cuid())
+  userId    String
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose   AuthTokenPurpose
+  tokenHash String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime          @default(now())
+
+  @@index([userId, purpose])
+  @@map("auth_tokens")
+}
+
+model Course {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @default("")
+  department  String   @default("General")
+
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdById String?
+  createdBy   User?   @relation("CourseCreatedBy", fields: [createdById], references: [id])
+
+  lessons     Lesson[]
+  assignments Assignment[]
+
+  @@map("courses")
+}
+
+model Lesson {
+  id       String     @id @default(cuid())
+  courseId String
+  course   Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  title     String
+  type      LessonType
+  order     Int        @default(0)
+
+  // Original uploaded file (or external link for LINK lessons)
+  fileKey   String? // storage key/path, driver-agnostic
+  fileName  String?
+  fileMime  String?
+  linkUrl   String?
+
+  // Office docs get converted to PDF for in-browser viewing + watermarking
+  convertedKey      String?
+  conversionStatus  ConversionStatus @default(NOT_REQUIRED)
+  conversionError   String?
+
+  durationSeconds Int? // for video lessons, used by the 90%-watched rule
+
+  // Only used when type = ASSIGNMENT — instructions shown to the employee,
+  // who must submit a text response before later lessons unlock. See
+  // modules/progress/progress.service.ts ensureUnlocked().
+  assignmentPrompt String?
+
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  progress    Progress[]
+  submissions LessonSubmission[]
+
+  @@index([courseId, order])
+  @@map("lessons")
+}
+
+enum SubmissionStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+// An employee's response to an ASSIGNMENT-type lesson. Submitting one is
+// what satisfies the completion rule for that lesson type and unlocks
+// whatever comes after it in the course. Admin review/approval is
+// available but doesn't block progression — see the module for why.
+model LessonSubmission {
+  id         String @id @default(cuid())
+  lessonId   String
+  lesson     Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  employeeId String
+  employee   User   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  responseText String?
+  fileKey      String?
+  fileName     String?
+  fileMime     String?
+  status       SubmissionStatus @default(SUBMITTED)
+
+  reviewedById String?
+  reviewedBy   User?   @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  reviewNote   String?
+  reviewedAt   DateTime?
+
+  submittedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([lessonId, employeeId])
+  @@index([employeeId])
+  @@map("lesson_submissions")
+}
+
+model Assignment {
+  id         String               @id @default(cuid())
+  courseId   String
+  course     Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  targetType AssignmentTargetType
+
+  employeeId String?
+  employee   User?    @relation("AssignedToUser", fields: [employeeId], references: [id], onDelete: Cascade)
+
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  assignedById String?
+  assignedBy   User?   @relation("AssignedBy", fields: [assignedById], references: [id])
+
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([courseId, employeeId])
+  @@unique([courseId, departmentId])
+  @@index([employeeId])
+  @@index([departmentId])
+  @@map("assignments")
+}
+
+// One row per (employee, lesson). Course-level completion is derived by
+// checking every lesson in the course has status = COMPLETED.
+model Progress {
+  id         String            @id @default(cuid())
+  employeeId String
+  employee   User              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  lessonId   String
+  lesson     Lesson            @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  status CompletionStatus @default(NOT_STARTED)
+
+  // video: seconds watched (for the ~90% rule) + last playback position (resume)
+  watchedSeconds Int @default(0)
+  lastPositionSeconds Int @default(0)
+
+  // pdf/ppt/doc/image: "I've reviewed this" click; link: confirmed-open click
+  confirmedAt DateTime?
+
+  completedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime  @default(now())
+
+  @@unique([employeeId, lessonId])
+  @@index([employeeId])
+  @@map("progress")
+}
+
+model ActivityLog {
+  id     String  @id @default(cuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  action   String // e.g. "auth.login", "lesson.view", "course.create"
+  metadata Json?
+  ip       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@map("activity_logs")
+}
+
+// Singleton row (id is always "home") holding the editable public home
+// page content — hero image, about section, featured courses, footer.
+// The frontend's CMS provider reads/writes this through /api/cms/home.
+model HomeContent {
+  id        String   @id @default("home")
+  content   Json
+  updatedAt DateTime @updatedAt
+  updatedById String?
+
+  @@map("home_content")
+}

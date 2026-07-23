@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #ffffff;
+  --foreground: #14152b;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+@layer utilities {
+  .text-gradient-warm {
+    background: linear-gradient(135deg, #e63946 0%, #f5821f 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/* Watermark tiling pattern, generated per-user at render time */
+.watermark-layer {
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Claymorphism + liquid glass system, used on the public home page   */
+/* ------------------------------------------------------------------ */
+@layer components {
+  .clay {
+    background: linear-gradient(145deg, #fbfcff, #e7e9f4);
+    box-shadow:
+      10px 10px 24px rgba(163, 168, 199, 0.5),
+      -10px -10px 22px rgba(255, 255, 255, 0.95);
+  }
+  .dark .clay {
+    background: linear-gradient(145deg, #23254a, #171833);
+    box-shadow:
+      10px 10px 24px rgba(0, 0, 0, 0.55),
+      -8px -8px 20px rgba(255, 255, 255, 0.035);
+  }
+
+  .clay-sm {
+    background: linear-gradient(145deg, #fbfcff, #eceefa);
+    box-shadow:
+      5px 5px 12px rgba(163, 168, 199, 0.45),
+      -5px -5px 12px rgba(255, 255, 255, 0.9);
+  }
+  .dark .clay-sm {
+    background: linear-gradient(145deg, #23254a, #191a38);
+    box-shadow:
+      5px 5px 12px rgba(0, 0, 0, 0.5),
+      -4px -4px 10px rgba(255, 255, 255, 0.03);
+  }
+
+  .clay-pressed {
+    box-shadow:
+      inset 5px 5px 12px rgba(163, 168, 199, 0.45),
+      inset -5px -5px 12px rgba(255, 255, 255, 0.9);
+  }
+  .dark .clay-pressed {
+    box-shadow:
+      inset 5px 5px 12px rgba(0, 0, 0, 0.5),
+      inset -4px -4px 10px rgba(255, 255, 255, 0.03);
+  }
+
+  .glass {
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    box-shadow:
+      0 8px 32px rgba(46, 49, 146, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  }
+  .dark .glass {
+    background: rgba(20, 21, 43, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+}
+
+@keyframes blob-float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(3%, -4%) scale(1.05); }
+  66% { transform: translate(-3%, 3%) scale(0.96); }
+}
+.animate-blob {
+  animation: blob-float 14s ease-in-out infinite;
+}
+.animate-blob-slow {
+  animation: blob-float 20s ease-in-out infinite reverse;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-blob,
+  .animate-blob-slow {
+    animation: none;
+  }
+}
