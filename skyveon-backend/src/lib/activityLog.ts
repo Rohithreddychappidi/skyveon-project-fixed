@@ -1,4 +1,5 @@
 import type { Request } from "express";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 
 export async function logActivity(params: {
@@ -12,7 +13,11 @@ export async function logActivity(params: {
       data: {
         userId: params.userId ?? null,
         action: params.action,
-        metadata: params.metadata ?? undefined,
+        // Prisma's generated Json input type doesn't structurally accept a
+        // plain Record<string, unknown> (it wants its own InputJsonValue
+        // union) even though any JSON-safe object is fine at runtime — cast
+        // here rather than loosen the public param type callers rely on.
+        metadata: (params.metadata as Prisma.InputJsonValue | undefined) ?? undefined,
         ip: params.req?.ip,
       },
     });

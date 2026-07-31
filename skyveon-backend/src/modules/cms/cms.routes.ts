@@ -83,7 +83,13 @@ cmsRouter.get(
       res.setHeader("Content-Type", mime);
       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
       res.send(buffer);
-    } catch {
+    } catch (err) {
+      // Log the REAL cause (wrong B2 region/credentials, network issue,
+      // genuinely missing key, etc.) — without this, every possible failure
+      // looks identical from the client side ("Image not found"), which
+      // makes B2 misconfiguration nearly impossible to diagnose.
+      // eslint-disable-next-line no-console
+      console.error(`[cms image] failed to read "${key}":`, err instanceof Error ? err.message : err);
       res.status(404).json({ error: "Image not found" });
     }
   })
