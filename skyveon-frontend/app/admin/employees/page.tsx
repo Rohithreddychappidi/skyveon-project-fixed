@@ -17,6 +17,9 @@ export default function EmployeesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", email: "", departmentId: "" });
+  const [newDeptName, setNewDeptName] = useState("");
+  const [addingDept, setAddingDept] = useState(false);
+  const [deptError, setDeptError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -62,6 +65,25 @@ export default function EmployeesPage() {
       setError(err instanceof ApiError ? err.message : "Couldn't add employee — try again.");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function addDepartment() {
+    const name = newDeptName.trim();
+    if (!name) return;
+    setAddingDept(true);
+    setDeptError(null);
+    try {
+      const body = await api.post("/api/departments", { name });
+      // Select it immediately so the admin doesn't have to re-open the
+      // dropdown to pick the department they just created.
+      setDepartments((prev) => [...prev, body.department]);
+      setForm((f) => ({ ...f, departmentId: body.department.id }));
+      setNewDeptName("");
+    } catch (err) {
+      setDeptError(err instanceof ApiError ? err.message : "Couldn't add department — try again.");
+    } finally {
+      setAddingDept(false);
     }
   }
 
@@ -195,6 +217,29 @@ export default function EmployeesPage() {
                     </option>
                   ))}
                 </select>
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    value={newDeptName}
+                    onChange={(e) => setNewDeptName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addDepartment();
+                      }
+                    }}
+                    placeholder="New department name"
+                    className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo focus:ring-2 focus:ring-indigo/15"
+                  />
+                  <button
+                    type="button"
+                    onClick={addDepartment}
+                    disabled={addingDept || !newDeptName.trim()}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-indigo hover:bg-indigo/5 disabled:opacity-50"
+                  >
+                    <Plus size={13} /> {addingDept ? "Adding…" : "Add"}
+                  </button>
+                </div>
+                {deptError && <p className="text-xs text-crimson">{deptError}</p>}
               </label>
               {error && <p className="text-xs text-crimson">{error}</p>}
               <p className="text-xs text-slate -mt-1">
