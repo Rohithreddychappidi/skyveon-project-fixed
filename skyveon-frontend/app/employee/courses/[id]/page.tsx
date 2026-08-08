@@ -321,27 +321,29 @@ export default function LessonViewerPage() {
                         onEnded={handleEnded}
                         className="h-full w-full"
                       />
-                      {/* Skip buttons — only shown on a rewatch (lesson
-                          already completed once). First-time viewers get no
-                          skip controls at all, matching the seek-clamp above. */}
+                      {/* Backward skip is always safe — rewinding can never
+                          let someone skip past unwatched content, so there's
+                          no reason to restrict it to rewatch-only. Forward
+                          skip stays gated behind a first completion, since
+                          that's the one that actually matters for the
+                          "no skipping ahead" rule (matching the seek-clamp
+                          in handleSeeking). */}
                       <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleSkip(-10)}
+                          className="flex items-center gap-1.5 rounded-lg bg-black/60 hover:bg-black/75 text-white text-xs font-medium px-3 py-2 backdrop-blur-sm transition-colors"
+                        >
+                          <SkipBack size={14} /> 10s
+                        </button>
                         {activeLesson.progress?.completedAt && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => handleSkip(-10)}
-                              className="flex items-center gap-1.5 rounded-lg bg-black/60 hover:bg-black/75 text-white text-xs font-medium px-3 py-2 backdrop-blur-sm transition-colors"
-                            >
-                              <SkipBack size={14} /> 10s
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleSkip(10)}
-                              className="flex items-center gap-1.5 rounded-lg bg-black/60 hover:bg-black/75 text-white text-xs font-medium px-3 py-2 backdrop-blur-sm transition-colors"
-                            >
-                              <SkipForward size={14} /> 10s
-                            </button>
-                          </>
+                          <button
+                            type="button"
+                            onClick={() => handleSkip(10)}
+                            className="flex items-center gap-1.5 rounded-lg bg-black/60 hover:bg-black/75 text-white text-xs font-medium px-3 py-2 backdrop-blur-sm transition-colors"
+                          >
+                            <SkipForward size={14} /> 10s
+                          </button>
                         )}
                         {/* Custom fullscreen toggle — replaces the native
                             control's fullscreen button (disabled above via
