@@ -131,7 +131,7 @@ export default function HomeCmsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [allCourses, setAllCourses] = useState<Course[]>([]);
-  const [uploadingField, setUploadingField] = useState<"hero" | "about" | null>(null);
+  const [uploadingField, setUploadingField] = useState<"hero" | "heroMobile" | "about" | null>(null);
 
   // Sync the editable draft with persisted content once it has loaded from
   // the API, so the form doesn't briefly show defaults then jump.
@@ -167,7 +167,7 @@ export default function HomeCmsPage() {
     setDraft(defaultHomeContent);
   }
 
-  async function uploadImage(field: "hero" | "about", file: File) {
+  async function uploadImage(field: "hero" | "heroMobile" | "about", file: File) {
     setUploadingField(field);
     setError(null);
     try {
@@ -176,6 +176,8 @@ export default function HomeCmsPage() {
       const body = await api.upload("/api/cms/upload-image", formData);
       if (field === "hero") {
         setDraft((d) => ({ ...d, hero: { ...d.hero, imageUrl: body.url } }));
+      } else if (field === "heroMobile") {
+        setDraft((d) => ({ ...d, hero: { ...d.hero, mobileImageUrl: body.url } }));
       } else {
         setDraft((d) => ({ ...d, about: { ...d.about, imageUrl: body.url } }));
       }
@@ -297,6 +299,16 @@ export default function HomeCmsPage() {
             onUpload={(file) => uploadImage("hero", file)}
             onClear={() => setDraft((d) => ({ ...d, hero: { ...d.hero, imageUrl: "" } }))}
           />
+          <div className="mt-4">
+            <ImageUploadField
+              label="Mobile banner image (optional)"
+              hint="A separate crop for small screens — a wide desktop banner often needs heavy cropping to fit a phone width, so this lets you pick something that looks right there instead. Falls back to the banner image above if left empty."
+              value={draft.hero.mobileImageUrl ?? ""}
+              uploading={uploadingField === "heroMobile"}
+              onUpload={(file) => uploadImage("heroMobile", file)}
+              onClear={() => setDraft((d) => ({ ...d, hero: { ...d.hero, mobileImageUrl: "" } }))}
+            />
+          </div>
           <Field label="Image alt text">
             <input
               className={inputClass}

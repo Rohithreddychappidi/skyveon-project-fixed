@@ -12,6 +12,10 @@ export interface HomeCmsContent {
     // Pure visual banner — intentionally no headline/body copy.
     // Leave imageUrl empty to use the generated clay/glass illustration.
     imageUrl: string;
+    // Optional — a separate crop/image for small screens, since a single
+    // wide banner rarely looks right at both a phone width and a desktop
+    // width. Falls back to imageUrl on mobile if left empty.
+    mobileImageUrl?: string;
     altText: string;
   };
   about: {
