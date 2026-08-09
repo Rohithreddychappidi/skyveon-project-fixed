@@ -7,13 +7,13 @@ import { resolveImageUrl } from "@/lib/api";
 export function Hero({ hero }: { hero: HomeCmsContent["hero"] }) {
   return (
     <section className="w-full px-3 sm:px-4 lg:px-6 pt-4">
-      <div className="clay relative overflow-hidden rounded-[28px] sm:rounded-[36px] h-[380px] sm:h-[480px] lg:h-[560px]">
+      <div className="clay relative overflow-hidden rounded-[28px] sm:rounded-[36px] h-[240px] sm:h-[480px] lg:h-[560px]">
         {hero.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={resolveImageUrl(hero.imageUrl)}
             alt={hero.altText || "Skyveon Learning Hub"}
-            className="absolute inset-0 h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full object-contain sm:object-cover"
           />
         ) : (
           <GeneratedBanner />
