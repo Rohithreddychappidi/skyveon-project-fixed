@@ -16,6 +16,12 @@ export interface HomeCmsContent {
     // wide banner rarely looks right at both a phone width and a desktop
     // width. Falls back to imageUrl on mobile if left empty.
     mobileImageUrl?: string;
+    // Every image ever uploaded for this slot, most recent last. imageUrl
+    // is simply "whichever one is currently selected as active" — uploading
+    // a new photo adds to this stack rather than discarding the old ones,
+    // so an admin can switch back to a previous banner without re-uploading.
+    imageGallery?: string[];
+    mobileImageGallery?: string[];
     altText: string;
   };
   about: {
@@ -24,6 +30,7 @@ export interface HomeCmsContent {
     highlights: { label: string; value: string }[];
     // Leave imageUrl empty to use the generated clay/glass illustration.
     imageUrl: string;
+    imageGallery?: string[];
   };
   coursesSection: {
     title: string;

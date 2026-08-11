@@ -6,10 +6,12 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/components/auth/auth-context";
 import type { Employee, Department } from "@/lib/api-types";
-import { Plus, X, UserMinus, UserCheck, Mail } from "lucide-react";
+import { Plus, X, UserMinus, UserCheck, Mail, Trash2 } from "lucide-react";
 
 export default function EmployeesPage() {
+  const { user } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,6 +22,10 @@ export default function EmployeesPage() {
   const [newDeptName, setNewDeptName] = useState("");
   const [addingDept, setAddingDept] = useState(false);
   const [deptError, setDeptError] = useState<string | null>(null);
+  const [permanentlyDeletingId, setPermanentlyDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -95,6 +101,26 @@ export default function EmployeesPage() {
     }
   }
 
+  async function confirmPermanentDelete() {
+    if (!deleteTarget) return;
+    if (deleteConfirmText.trim().toLowerCase() !== deleteTarget.email.toLowerCase()) {
+      setDeleteError("That doesn't match their email — type it exactly to confirm.");
+      return;
+    }
+    setPermanentlyDeletingId(deleteTarget.id);
+    setDeleteError(null);
+    try {
+      await api.delete(`/api/users/${deleteTarget.id}/permanent`);
+      setEmployees((prev) => prev.filter((e) => e.id !== deleteTarget.id));
+      setDeleteTarget(null);
+      setDeleteConfirmText("");
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Couldn't delete — try again.");
+    } finally {
+      setPermanentlyDeletingId(null);
+    }
+  }
+
   const activeCount = employees.filter((e) => e.status === "ACTIVE").length;
 
   return (
@@ -146,20 +172,30 @@ export default function EmployeesPage() {
                   </Badge>
                 </td>
                 <td className="px-5 py-3.5 text-right">
-                  <button
-                    onClick={() => toggleStatus(emp)}
-                    className="inline-flex items-center gap-1.5 text-xs font-medium text-slate hover:text-indigo"
-                  >
-                    {emp.status === "ACTIVE" ? (
-                      <>
-                        <UserMinus size={14} /> Deactivate
-                      </>
-                    ) : (
-                      <>
-                        <UserCheck size={14} /> Reactivate
-                      </>
+                  <div className="flex items-center justify-end gap-3">
+                    <button
+                      onClick={() => toggleStatus(emp)}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-slate hover:text-indigo"
+                    >
+                      {emp.status === "ACTIVE" ? (
+                        <>
+                          <UserMinus size={14} /> Deactivate
+                        </>
+                      ) : (
+                        <>
+                          <UserCheck size={14} /> Reactivate
+                        </>
+                      )}
+                    </button>
+                    {user?.role === "MASTER_ADMIN" && (
+                      <button
+                        onClick={() => setDeleteTarget(emp)}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-slate hover:text-crimson"
+                      >
+                        <Trash2 size={14} /> Delete permanently
+                      </button>
                     )}
-                  </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -249,6 +285,52 @@ export default function EmployeesPage() {
                 {submitting ? "Adding…" : "Add employee"}
               </Button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Permanent delete — master-admin-only, requires typing the
+          employee's email to confirm since this cannot be undone. This is
+          NOT the same as Deactivate above: it removes the record along with
+          every lesson submission and progress row they have. */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-ink/30 px-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 border border-slate-200">
+            <h3 className="font-display font-semibold text-lg text-ink">Delete permanently?</h3>
+            <p className="text-sm text-slate mt-2">
+              This permanently deletes <strong>{deleteTarget.name}</strong> ({deleteTarget.email}), along with
+              every lesson submission and progress record they have. This cannot be undone — it's not the same
+              as Deactivate, which keeps their history.
+            </p>
+            <p className="text-xs text-slate mt-3 mb-1.5">
+              Type their email to confirm:
+            </p>
+            <input
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder={deleteTarget.email}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-crimson focus:ring-2 focus:ring-crimson/15"
+            />
+            {deleteError && <p className="text-xs text-crimson mt-2">{deleteError}</p>}
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <button
+                onClick={() => {
+                  setDeleteTarget(null);
+                  setDeleteConfirmText("");
+                  setDeleteError(null);
+                }}
+                className="text-sm text-slate hover:text-ink px-3 py-2"
+              >
+                Cancel
+              </button>
+              <Button
+                onClick={confirmPermanentDelete}
+                disabled={permanentlyDeletingId === deleteTarget.id}
+                className="bg-crimson hover:bg-crimson/90"
+              >
+                {permanentlyDeletingId === deleteTarget.id ? "Deleting…" : "Delete permanently"}
+              </Button>
+            </div>
           </div>
         </div>
       )}

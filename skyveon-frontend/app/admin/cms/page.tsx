@@ -124,6 +124,63 @@ function ImageUploadField({
   );
 }
 
+// Module-scope, same reasoning as ImageUploadField above — stable identity
+// across renders.
+function PhotoStack({
+  images,
+  activeUrl,
+  onSelect,
+  onDelete,
+}: {
+  images: string[];
+  activeUrl: string;
+  onSelect: (url: string) => void;
+  onDelete: (url: string) => void;
+}) {
+  if (images.length === 0) return null;
+  return (
+    <div className="mt-2">
+      <p className="text-xs text-slate mb-1.5">
+        Previously uploaded — click one to make it active instead of uploading again.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {images.map((url) => {
+          const active = url === activeUrl;
+          return (
+            <div key={url} className="relative group">
+              <button
+                type="button"
+                onClick={() => onSelect(url)}
+                className={`h-14 w-14 rounded-lg overflow-hidden border-2 transition-colors ${
+                  active ? "border-indigo" : "border-transparent hover:border-slate-300"
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={resolveImageUrl(url)} alt="" className="h-full w-full object-cover" />
+              </button>
+              {active && (
+                <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-indigo flex items-center justify-center">
+                  <Check size={10} className="text-white" />
+                </span>
+              )}
+              {!active && (
+                <button
+                  type="button"
+                  onClick={() => onDelete(url)}
+                  title="Remove from library"
+                  className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-white border border-slate-200 opacity-0 group-hover:opacity-100 flex items-center justify-center text-slate hover:text-crimson transition-opacity"
+                >
+                  <XIcon size={10} />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function HomeCmsPage() {
   const { content, hydrated, save, resetToDefault } = useCms();
   const [draft, setDraft] = useState<HomeCmsContent>(content);
@@ -175,16 +232,71 @@ export default function HomeCmsPage() {
       formData.append("file", file);
       const body = await api.upload("/api/cms/upload-image", formData);
       if (field === "hero") {
-        setDraft((d) => ({ ...d, hero: { ...d.hero, imageUrl: body.url } }));
+        setDraft((d) => ({
+          ...d,
+          hero: {
+            ...d.hero,
+            imageUrl: body.url,
+            imageGallery: [...(d.hero.imageGallery ?? []), body.url],
+          },
+        }));
       } else if (field === "heroMobile") {
-        setDraft((d) => ({ ...d, hero: { ...d.hero, mobileImageUrl: body.url } }));
+        setDraft((d) => ({
+          ...d,
+          hero: {
+            ...d.hero,
+            mobileImageUrl: body.url,
+            mobileImageGallery: [...(d.hero.mobileImageGallery ?? []), body.url],
+          },
+        }));
       } else {
-        setDraft((d) => ({ ...d, about: { ...d.about, imageUrl: body.url } }));
+        setDraft((d) => ({
+          ...d,
+          about: {
+            ...d.about,
+            imageUrl: body.url,
+            imageGallery: [...(d.about.imageGallery ?? []), body.url],
+          },
+        }));
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Upload failed — try again.");
     } finally {
       setUploadingField(null);
+    }
+  }
+
+  // Picking/removing from a photo stack never re-uploads anything — it just
+  // repoints the active imageUrl/mobileImageUrl at an already-stored B2 file.
+  function selectFromGallery(field: "hero" | "heroMobile" | "about", url: string) {
+    if (field === "hero") {
+      setDraft((d) => ({ ...d, hero: { ...d.hero, imageUrl: url } }));
+    } else if (field === "heroMobile") {
+      setDraft((d) => ({ ...d, hero: { ...d.hero, mobileImageUrl: url } }));
+    } else {
+      setDraft((d) => ({ ...d, about: { ...d.about, imageUrl: url } }));
+    }
+  }
+
+  function deleteFromGallery(field: "hero" | "heroMobile" | "about", url: string) {
+    if (field === "hero") {
+      setDraft((d) => ({
+        ...d,
+        hero: { ...d.hero, imageGallery: (d.hero.imageGallery ?? []).filter((u) => u !== url) },
+      }));
+    } else if (field === "heroMobile") {
+      setDraft((d) => ({
+        ...d,
+        hero: {
+          ...d.hero,
+          mobileImageGallery: (d.hero.mobileImageGallery ?? []).filter((u) => u !== url),
+        },
+      }));
+    } else {
+      setDraft((d) => ({
+        ...d,
+        about: { ...d.about, imageGallery: (d.about.imageGallery ?? []).filter((u) => u !== url) },
+      }));
     }
   }
 
@@ -299,6 +411,12 @@ export default function HomeCmsPage() {
             onUpload={(file) => uploadImage("hero", file)}
             onClear={() => setDraft((d) => ({ ...d, hero: { ...d.hero, imageUrl: "" } }))}
           />
+          <PhotoStack
+            images={draft.hero.imageGallery ?? []}
+            activeUrl={draft.hero.imageUrl}
+            onSelect={(url) => selectFromGallery("hero", url)}
+            onDelete={(url) => deleteFromGallery("hero", url)}
+          />
           <div className="mt-4">
             <ImageUploadField
               label="Mobile banner image (optional)"
@@ -307,6 +425,12 @@ export default function HomeCmsPage() {
               uploading={uploadingField === "heroMobile"}
               onUpload={(file) => uploadImage("heroMobile", file)}
               onClear={() => setDraft((d) => ({ ...d, hero: { ...d.hero, mobileImageUrl: "" } }))}
+            />
+            <PhotoStack
+              images={draft.hero.mobileImageGallery ?? []}
+              activeUrl={draft.hero.mobileImageUrl ?? ""}
+              onSelect={(url) => selectFromGallery("heroMobile", url)}
+              onDelete={(url) => deleteFromGallery("heroMobile", url)}
             />
           </div>
           <Field label="Image alt text">
@@ -330,6 +454,12 @@ export default function HomeCmsPage() {
             uploading={uploadingField === "about"}
             onUpload={(file) => uploadImage("about", file)}
             onClear={() => setDraft((d) => ({ ...d, about: { ...d.about, imageUrl: "" } }))}
+          />
+          <PhotoStack
+            images={draft.about.imageGallery ?? []}
+            activeUrl={draft.about.imageUrl}
+            onSelect={(url) => selectFromGallery("about", url)}
+            onDelete={(url) => deleteFromGallery("about", url)}
           />
           <Field label="Title">
             <input
