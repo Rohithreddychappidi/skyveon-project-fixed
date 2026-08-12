@@ -168,11 +168,14 @@ export default function LessonViewerPage() {
     // Client-side mirror of the server's anti-skip rule — but only on a
     // FIRST watch. Once a video's already been completed once, the server
     // allows free scrubbing on rewatch, so this stops enforcing too.
+    // Near-zero tolerance (just enough to absorb tiny timing jitter) rather
+    // than a generous window — dragging the scrubber forward on a first
+    // watch should not meaningfully work at all.
     const video = videoRef.current;
     if (!video || !activeLesson) return;
     if (activeLesson.progress?.completedAt) return;
     const watched = activeLesson.progress?.watchedSeconds ?? 0;
-    if (video.currentTime > watched + 45) {
+    if (video.currentTime > watched + 2) {
       video.currentTime = watched;
     }
   }
