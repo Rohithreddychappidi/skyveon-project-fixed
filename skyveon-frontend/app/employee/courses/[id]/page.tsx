@@ -240,33 +240,76 @@ export default function LessonViewerPage() {
           </p>
         </div>
         <div className="flex flex-col divide-y divide-slate-50">
-          {course.lessons.map((lesson) => {
-            const status = lesson.progress?.status ?? "NOT_STARTED";
-            return (
-              <button
-                key={lesson.id}
-                onClick={() => selectLesson(lesson)}
-                disabled={lesson.locked}
-                className={`flex items-center gap-2.5 px-4 py-3 text-left text-sm transition-colors ${
-                  lesson.locked
-                    ? "text-slate-300 cursor-not-allowed"
-                    : lesson.id === activeLessonId
-                    ? "bg-indigo/[0.06] text-indigo"
-                    : "text-ink hover:bg-slate-50"
-                }`}
-              >
-                {lesson.locked ? (
-                  <Lock size={16} className="text-slate-300 flex-none" />
-                ) : status === "COMPLETED" ? (
-                  <CheckCircle2 size={16} className="text-green-600 flex-none" />
-                ) : (
-                  <CircleDashed size={16} className="text-slate-300 flex-none" />
-                )}
-                <LessonTypeIcon type={lesson.type} className="h-3.5 w-3.5 text-slate flex-none" />
-                <span className="truncate">{lesson.title}</span>
-              </button>
-            );
-          })}
+          {[...course.modules]
+            .sort((a, b) => a.order - b.order)
+            .map((mod) => {
+              const modLessons = course.lessons.filter((l) => l.moduleId === mod.id);
+              if (modLessons.length === 0) return null;
+              return (
+                <div key={mod.id}>
+                  <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    {mod.title}
+                  </p>
+                  {modLessons.map((lesson) => {
+                    const status = lesson.progress?.status ?? "NOT_STARTED";
+                    return (
+                      <button
+                        key={lesson.id}
+                        onClick={() => selectLesson(lesson)}
+                        disabled={lesson.locked}
+                        className={`flex items-center gap-2.5 px-4 py-3 text-left text-sm transition-colors w-full ${
+                          lesson.locked
+                            ? "text-slate-300 cursor-not-allowed"
+                            : lesson.id === activeLessonId
+                            ? "bg-indigo/[0.06] text-indigo"
+                            : "text-ink hover:bg-slate-50"
+                        }`}
+                      >
+                        {lesson.locked ? (
+                          <Lock size={16} className="text-slate-300 flex-none" />
+                        ) : status === "COMPLETED" ? (
+                          <CheckCircle2 size={16} className="text-green-600 flex-none" />
+                        ) : (
+                          <CircleDashed size={16} className="text-slate-300 flex-none" />
+                        )}
+                        <LessonTypeIcon type={lesson.type} className="h-3.5 w-3.5 text-slate flex-none" />
+                        <span className="truncate">{lesson.title}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+
+          {course.lessons
+            .filter((l) => !l.moduleId)
+            .map((lesson) => {
+              const status = lesson.progress?.status ?? "NOT_STARTED";
+              return (
+                <button
+                  key={lesson.id}
+                  onClick={() => selectLesson(lesson)}
+                  disabled={lesson.locked}
+                  className={`flex items-center gap-2.5 px-4 py-3 text-left text-sm transition-colors w-full ${
+                    lesson.locked
+                      ? "text-slate-300 cursor-not-allowed"
+                      : lesson.id === activeLessonId
+                      ? "bg-indigo/[0.06] text-indigo"
+                      : "text-ink hover:bg-slate-50"
+                  }`}
+                >
+                  {lesson.locked ? (
+                    <Lock size={16} className="text-slate-300 flex-none" />
+                  ) : status === "COMPLETED" ? (
+                    <CheckCircle2 size={16} className="text-green-600 flex-none" />
+                  ) : (
+                    <CircleDashed size={16} className="text-slate-300 flex-none" />
+                  )}
+                  <LessonTypeIcon type={lesson.type} className="h-3.5 w-3.5 text-slate flex-none" />
+                  <span className="truncate">{lesson.title}</span>
+                </button>
+              );
+            })}
         </div>
       </Card>
 

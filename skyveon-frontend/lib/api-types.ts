@@ -75,6 +75,7 @@ export interface LessonSubmission {
 export interface Lesson {
   id: string;
   courseId: string;
+  moduleId?: string | null;
   title: string;
   type: LessonType;
   order: number;
@@ -92,12 +93,20 @@ export interface Lesson {
   locked?: boolean;
 }
 
+export interface Module {
+  id: string;
+  courseId: string;
+  title: string;
+  order: number;
+}
+
 export interface Course {
   id: string;
   title: string;
   description: string;
   department: string;
   lessons: Lesson[];
+  modules: Module[];
   createdAt: string;
   progress?: { completedLessons: number; totalLessons: number; percent: number };
 }
