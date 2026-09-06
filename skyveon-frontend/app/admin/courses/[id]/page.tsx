@@ -654,6 +654,18 @@ export default function CourseDetailPage() {
     await load();
   }
 
+  async function deleteCourse() {
+    if (!course) return;
+    if (
+      !window.confirm(
+        `Delete "${course.title}"? This hides it from every list — employees lose access, but existing progress/submission history is kept, not erased.`
+      )
+    )
+      return;
+    await api.delete(`/api/courses/${course.id}`);
+    router.push("/admin/courses");
+  }
+
   if (error && !course) {
     return <p className="text-sm text-crimson">{error}</p>;
   }
@@ -670,9 +682,14 @@ export default function CourseDetailPage() {
         title={course.title}
         subtitle={course.description || "No description yet."}
         action={
-          <Button variant="ghost" size="sm" onClick={() => router.push("/admin/courses")}>
-            Back to courses
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => router.push("/admin/courses")}>
+              Back to courses
+            </Button>
+            <Button variant="ghost" size="sm" onClick={deleteCourse} className="text-crimson hover:bg-crimson/5">
+              <Trash2 size={14} /> Delete course
+            </Button>
+          </div>
         }
       />
 

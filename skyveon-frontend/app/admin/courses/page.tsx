@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
 import type { Course } from "@/lib/api-types";
-import { Plus, X, BookOpen, Layers } from "lucide-react";
+import { Plus, X, BookOpen, Layers, Trash2 } from "lucide-react";
 
 export default function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([]);
@@ -46,6 +46,21 @@ export default function CoursesPage() {
     }
   }
 
+  async function deleteCourse(e: React.MouseEvent, course: Course) {
+    // Cards are wrapped in a Link — stop the click from also navigating
+    // into the course before the confirm dialog even shows.
+    e.preventDefault();
+    e.stopPropagation();
+    if (
+      !window.confirm(
+        `Delete "${course.title}"? This hides it from every list — employees lose access, but existing progress/submission history is kept, not erased.`
+      )
+    )
+      return;
+    await api.delete(`/api/courses/${course.id}`);
+    await load();
+  }
+
   return (
     <div>
       <PageHeader
@@ -66,7 +81,16 @@ export default function CoursesPage() {
                 <span className="h-9 w-9 rounded-lg bg-orange/10 flex items-center justify-center">
                   <BookOpen size={18} className="text-orange" />
                 </span>
-                <Badge tone="cool">{course.department}</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge tone="cool">{course.department}</Badge>
+                  <button
+                    onClick={(e) => deleteCourse(e, course)}
+                    title="Delete course"
+                    className="text-slate-300 hover:text-crimson transition-colors"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
               </div>
               <h3 className="font-display font-semibold text-ink mb-1">{course.title}</h3>
               <p className="text-sm text-slate line-clamp-2 mb-4">{course.description}</p>
