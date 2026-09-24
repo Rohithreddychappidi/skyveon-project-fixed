@@ -87,3 +87,13 @@ export function requirePermission(permission: AdminPermission) {
     return next(ApiError.forbidden(`Missing the ${permission} permission`));
   };
 }
+
+export function requireAnyPermission(...permissions: AdminPermission[]) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.user) return next(ApiError.unauthorized());
+    if (req.user.role === "MASTER_ADMIN") return next();
+    if (req.user.role === "ADMIN" && permissions.some((p) => req.user?.adminPermissions.includes(p))) return next();
+    return next(ApiError.forbidden(`Missing required permission: ${permissions.join(" or ")}`));
+  };
+}
+

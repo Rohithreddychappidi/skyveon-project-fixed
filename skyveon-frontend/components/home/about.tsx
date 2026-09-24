@@ -1,21 +1,44 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Building2 } from "lucide-react";
-import type { HomeCmsContent } from "@/lib/cms-types";
+import type { HomeCmsContent, ImagePosition } from "@/lib/cms-types";
 import { resolveImageUrl } from "@/lib/api";
 
+function positionToCSS(pos: ImagePosition | undefined): string {
+  if (!pos) return "center";
+  return pos.replace("-", " ");
+}
+
 export function About({ about }: { about: HomeCmsContent["about"] }) {
+  const [activeUrl, setActiveUrl] = useState(about.imageUrl);
+
+  useEffect(() => {
+    const pool = Array.from(
+      new Set([...(about.imageGallery ?? []), ...(about.imageUrl ? [about.imageUrl] : [])])
+    );
+    if (about.randomiseOnLoad && pool.length > 1) {
+      const picked = pool[Math.floor(Math.random() * pool.length)];
+      setActiveUrl(picked);
+    } else {
+      setActiveUrl(about.imageUrl);
+    }
+  }, [about.imageUrl, about.imageGallery, about.randomiseOnLoad]);
+
+  const objectPosition = positionToCSS(about.imagePosition);
+
   return (
     <section id="about" className="py-16 sm:py-24">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 grid md:grid-cols-2 gap-8 md:gap-10 items-center">
         {/* Left: photo, clay-framed */}
         <div className="clay relative overflow-hidden rounded-[32px] h-72 sm:h-96 order-1">
-          {about.imageUrl ? (
+          {activeUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={resolveImageUrl(about.imageUrl)}
+              src={resolveImageUrl(activeUrl)}
               alt="Skyveon team"
               className="absolute inset-0 h-full w-full object-cover"
+              style={{ objectPosition }}
             />
           ) : (
             <GeneratedPhoto />

@@ -25,8 +25,18 @@ function mergeWithDefaults(saved: Partial<HomeCmsContent>): HomeCmsContent {
     ...defaultHomeContent,
     ...saved,
     brand: { ...defaultHomeContent.brand, ...saved.brand },
-    hero: { ...defaultHomeContent.hero, ...saved.hero },
-    about: { ...defaultHomeContent.about, ...saved.about },
+    hero: {
+      ...defaultHomeContent.hero,
+      ...saved.hero,
+      imageGallery: saved.hero?.imageGallery ?? defaultHomeContent.hero.imageGallery,
+      mobileImageGallery: saved.hero?.mobileImageGallery ?? defaultHomeContent.hero.mobileImageGallery,
+    },
+    about: {
+      ...defaultHomeContent.about,
+      ...saved.about,
+      highlights: saved.about?.highlights ?? defaultHomeContent.about.highlights,
+      imageGallery: saved.about?.imageGallery ?? defaultHomeContent.about.imageGallery,
+    },
     coursesSection: { ...defaultHomeContent.coursesSection, ...saved.coursesSection },
     footer: { ...defaultHomeContent.footer, ...saved.footer },
   };

@@ -7,6 +7,12 @@ export const defaultHomeContent: HomeCmsContent = {
   },
   hero: {
     imageUrl: "",
+    imagePosition: "center",
+    mobileImageUrl: "",
+    mobileImagePosition: "center",
+    imageGallery: [],
+    mobileImageGallery: [],
+    randomiseOnLoad: false,
     altText: "Skyveon Learning Hub",
   },
   about: {
@@ -18,6 +24,9 @@ export const defaultHomeContent: HomeCmsContent = {
       { label: "Progress tracking", value: "Automatic" },
     ],
     imageUrl: "",
+    imagePosition: "center",
+    imageGallery: [],
+    randomiseOnLoad: false,
   },
   coursesSection: {
     title: "Explore our courses",

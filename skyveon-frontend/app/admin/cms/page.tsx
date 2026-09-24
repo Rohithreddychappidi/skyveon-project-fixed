@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useCms } from "@/components/cms/cms-context";
 import { defaultHomeContent } from "@/lib/cms-data";
-import type { HomeCmsContent } from "@/lib/cms-types";
+import type { HomeCmsContent, ImagePosition } from "@/lib/cms-types";
 import { api, ApiError, resolveImageUrl } from "@/lib/api";
 import type { Course } from "@/lib/api-types";
 import {
@@ -19,6 +19,8 @@ import {
   Check,
   Upload,
   X as XIcon,
+  Shuffle,
+  ImageIcon,
 } from "lucide-react";
 
 const inputClass =
@@ -61,121 +63,286 @@ function SectionCard({
   );
 }
 
-// Module-scope (not nested in HomeCmsPage) — see the note in
-// app/admin/courses/[id]/page.tsx about why inline component definitions
-// inside another component's render body are best avoided: they get a new
-// identity on every render, which can cause unexpected remounts.
-function ImageUploadField({
-  label,
-  hint,
-  value,
-  uploading,
-  onUpload,
-  onClear,
+const IMAGE_POSITIONS: { value: ImagePosition; label: string; name: string }[] = [
+  { value: "top-left", label: "↖", name: "Top Left" },
+  { value: "top", label: "↑", name: "Top Center" },
+  { value: "top-right", label: "↗", name: "Top Right" },
+  { value: "left", label: "←", name: "Center Left" },
+  { value: "center", label: "⊙", name: "Center" },
+  { value: "right", label: "→", name: "Center Right" },
+  { value: "bottom-left", label: "↙", name: "Bottom Left" },
+  { value: "bottom", label: "↓", name: "Bottom Center" },
+  { value: "bottom-right", label: "↘", name: "Bottom Right" },
+];
+
+/**
+ * Visual crop & alignment editor with live real-time preview of the
+ * exact aspect ratio used on the public site.
+ */
+function ImagePlacementEditor({
+  title,
+  subtitle,
+  imageUrl,
+  position,
+  onChangePosition,
+  aspectRatioClass = "aspect-[16/7]",
 }: {
-  label: string;
-  hint?: string;
-  value: string;
-  uploading: boolean;
-  onUpload: (file: File) => void;
-  onClear: () => void;
+  title: string;
+  subtitle?: string;
+  imageUrl?: string;
+  position?: ImagePosition;
+  onChangePosition: (pos: ImagePosition) => void;
+  aspectRatioClass?: string;
 }) {
+  const active = position ?? "center";
+  const activeObj = IMAGE_POSITIONS.find((p) => p.value === active) ?? IMAGE_POSITIONS[4];
+
+  if (!imageUrl) return null;
+
   return (
-    <div>
-      <span className={labelClass}>{label}</span>
-      {hint && <p className="text-xs text-slate mb-2 -mt-1">{hint}</p>}
-      <div className="flex items-center gap-3">
-        {value ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={resolveImageUrl(value)}
-            alt=""
-            className="h-14 w-14 rounded-lg object-cover border border-slate-200 flex-none"
-          />
-        ) : (
-          <div className="h-14 w-14 rounded-lg border border-dashed border-slate-200 flex-none" />
-        )}
-        <label className="cursor-pointer">
-          <input
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) onUpload(file);
-              e.target.value = "";
-            }}
-          />
-          <span className="inline-flex items-center gap-1.5 text-sm text-indigo hover:underline">
-            <Upload size={14} /> {uploading ? "Uploading…" : value ? "Replace image" : "Upload image"}
+    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-700">
+            {title}
           </span>
-        </label>
-        {value && !uploading && (
-          <button
-            type="button"
-            onClick={onClear}
-            className="inline-flex items-center gap-1 text-xs text-slate hover:text-crimson"
-          >
-            <XIcon size={12} /> Remove
-          </button>
-        )}
+          {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+        </div>
+        <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-white border border-slate-200 text-indigo shadow-xs">
+          Alignment: {activeObj.name}
+        </span>
+      </div>
+
+      <div className="grid sm:grid-cols-[1fr_auto] gap-4 items-center">
+        {/* Live crop preview box */}
+        <div className={`relative overflow-hidden rounded-lg border border-slate-300 bg-slate-200 ${aspectRatioClass} max-h-48 w-full shadow-inner`}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={resolveImageUrl(imageUrl)}
+            alt="Position preview"
+            className="w-full h-full object-cover transition-[object-position] duration-300"
+            style={{ objectPosition: active.replace("-", " ") }}
+          />
+          {/* 3x3 overlay grid for spatial context */}
+          <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none border border-white/20">
+            {IMAGE_POSITIONS.map(({ value: pos }) => (
+              <div
+                key={pos}
+                className={`border border-white/10 transition-colors ${
+                  active === pos ? "bg-indigo/25 ring-2 ring-indigo inset-0" : ""
+                }`}
+              />
+            ))}
+          </div>
+          <div className="absolute bottom-2 left-2 pointer-events-none bg-black/60 backdrop-blur-sm text-white text-[10px] px-2 py-0.5 rounded font-mono">
+            Live Crop Preview
+          </div>
+        </div>
+
+        {/* 3x3 Clickable alignment buttons */}
+        <div className="flex flex-col items-center gap-1.5 self-center">
+          <span className="text-[11px] text-slate-500 font-medium">Click to reposition</span>
+          <div className="grid grid-cols-3 gap-1 bg-white p-1.5 rounded-lg border border-slate-200 shadow-xs">
+            {IMAGE_POSITIONS.map(({ value: pos, label, name }) => (
+              <button
+                key={pos}
+                type="button"
+                title={name}
+                onClick={() => onChangePosition(pos)}
+                className={`h-9 w-9 rounded flex items-center justify-center text-sm font-semibold transition-all ${
+                  active === pos
+                    ? "bg-indigo text-white shadow-xs scale-105"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-ink"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-// Module-scope, same reasoning as ImageUploadField above — stable identity
-// across renders.
-function PhotoStack({
-  images,
+/**
+ * Multi-Image Rotation Gallery Manager.
+ * Allows admins to manage a pool of images that rotate on page load/refresh,
+ * select the primary image, upload multiple files at once, or add direct URLs.
+ */
+function MultiImageRotationManager({
+  title,
+  description,
   activeUrl,
-  onSelect,
-  onDelete,
+  gallery,
+  randomiseOnLoad,
+  onToggleRandomise,
+  onSelectActive,
+  onRemoveFromGallery,
+  onUploadImages,
+  onAddUrl,
+  uploading,
 }: {
-  images: string[];
+  title: string;
+  description?: string;
   activeUrl: string;
-  onSelect: (url: string) => void;
-  onDelete: (url: string) => void;
+  gallery: string[];
+  randomiseOnLoad: boolean;
+  onToggleRandomise: (checked: boolean) => void;
+  onSelectActive: (url: string) => void;
+  onRemoveFromGallery: (url: string) => void;
+  onUploadImages: (files: FileList) => void;
+  onAddUrl: (url: string) => void;
+  uploading: boolean;
 }) {
-  if (images.length === 0) return null;
+  const [urlInput, setUrlInput] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Combine gallery and activeUrl so nothing is ever hidden or lost
+  const fullGallery = Array.from(new Set([...gallery, ...(activeUrl ? [activeUrl] : [])]));
+
+  function handleAddUrlSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = urlInput.trim();
+    if (!trimmed) return;
+    onAddUrl(trimmed);
+    setUrlInput("");
+  }
+
   return (
-    <div className="mt-2">
-      <p className="text-xs text-slate mb-1.5">
-        Previously uploaded — click one to make it active instead of uploading again.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {images.map((url) => {
-          const active = url === activeUrl;
-          return (
-            <div key={url} className="relative group">
-              <button
-                type="button"
-                onClick={() => onSelect(url)}
-                className={`h-14 w-14 rounded-lg overflow-hidden border-2 transition-colors ${
-                  active ? "border-indigo" : "border-transparent hover:border-slate-300"
+    <div className="rounded-xl border border-slate-200 bg-white p-4 flex flex-col gap-4 shadow-xs">
+      {/* Header and Rotation Toggle */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-display font-semibold text-sm text-ink">{title}</h3>
+            {randomiseOnLoad && fullGallery.length > 1 ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-medium">
+                <Shuffle size={11} /> Rotating on refresh ({fullGallery.length} images)
+              </span>
+            ) : randomiseOnLoad ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-0.5 text-[11px] font-medium">
+                Add 1 more image to rotate
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 text-[11px]">
+                Single image mode
+              </span>
+            )}
+          </div>
+          {description && <p className="text-xs text-slate-500 mt-1">{description}</p>}
+        </div>
+
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={randomiseOnLoad}
+            onChange={(e) => onToggleRandomise(e.target.checked)}
+            className="h-4 w-4 accent-indigo rounded cursor-pointer"
+          />
+          <span className="text-xs font-medium text-ink">Rotate images on load</span>
+        </label>
+      </div>
+
+      {/* Gallery Cards */}
+      {fullGallery.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-6 px-4 text-center">
+          <ImageIcon size={28} className="mx-auto text-slate-300 mb-2" />
+          <p className="text-xs text-slate-600 font-medium">No images in this gallery yet</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            Upload multiple images or add image URLs below to enable rotation.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+          {fullGallery.map((url) => {
+            const isActive = url === activeUrl;
+            return (
+              <div
+                key={url}
+                className={`group relative rounded-lg border overflow-hidden transition-all flex flex-col bg-white shadow-xs ${
+                  isActive
+                    ? "border-indigo ring-2 ring-indigo/20"
+                    : "border-slate-200 hover:border-slate-300"
                 }`}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={resolveImageUrl(url)} alt="" className="h-full w-full object-cover" />
-              </button>
-              {active && (
-                <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-indigo flex items-center justify-center">
-                  <Check size={10} className="text-white" />
-                </span>
-              )}
-              {!active && (
-                <button
-                  type="button"
-                  onClick={() => onDelete(url)}
-                  title="Remove from library"
-                  className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-white border border-slate-200 opacity-0 group-hover:opacity-100 flex items-center justify-center text-slate hover:text-crimson transition-opacity"
-                >
-                  <XIcon size={10} />
-                </button>
-              )}
-            </div>
-          );
-        })}
+                <div className="relative h-24 w-full bg-slate-100">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={resolveImageUrl(url)}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                  {isActive && (
+                    <span className="absolute top-1.5 left-1.5 bg-indigo text-white text-[10px] font-medium px-1.5 py-0.5 rounded shadow">
+                      Primary
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onRemoveFromGallery(url)}
+                    title="Remove from rotation"
+                    className="absolute top-1.5 right-1.5 h-6 w-6 rounded-md bg-white/90 hover:bg-crimson hover:text-white text-slate-600 flex items-center justify-center transition-colors shadow-sm"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+                <div className="p-2 flex items-center justify-between text-[11px]">
+                  {!isActive ? (
+                    <button
+                      type="button"
+                      onClick={() => onSelectActive(url)}
+                      className="text-indigo font-medium hover:underline text-[11px]"
+                    >
+                      Set as primary
+                    </button>
+                  ) : (
+                    <span className="text-slate-400 text-[10px]">Default</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add Images Actions Toolbar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2 border-t border-slate-100">
+        <label className="cursor-pointer flex-none">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                onUploadImages(e.target.files);
+              }
+              e.target.value = "";
+            }}
+          />
+          <span className="inline-flex items-center justify-center gap-1.5 text-xs font-medium rounded-lg px-3 py-2 bg-indigo/10 text-indigo hover:bg-indigo/15 transition-colors w-full sm:w-auto">
+            <Upload size={14} />
+            {uploading ? "Uploading…" : "Upload images (multi-select)"}
+          </span>
+        </label>
+
+        <form onSubmit={handleAddUrlSubmit} className="flex-1 flex gap-1.5">
+          <input
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            placeholder="Or paste image URL to add to rotation…"
+            className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-indigo"
+          />
+          <button
+            type="submit"
+            disabled={!urlInput.trim()}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-ink hover:bg-slate-200 disabled:opacity-50 transition-colors flex-none"
+          >
+            Add URL
+          </button>
+        </form>
       </div>
     </div>
   );
@@ -237,7 +404,7 @@ export default function HomeCmsPage() {
           hero: {
             ...d.hero,
             imageUrl: body.url,
-            imageGallery: [...(d.hero.imageGallery ?? []), body.url],
+            imageGallery: Array.from(new Set([...(d.hero.imageGallery ?? []), body.url])),
           },
         }));
       } else if (field === "heroMobile") {
@@ -246,7 +413,7 @@ export default function HomeCmsPage() {
           hero: {
             ...d.hero,
             mobileImageUrl: body.url,
-            mobileImageGallery: [...(d.hero.mobileImageGallery ?? []), body.url],
+            mobileImageGallery: Array.from(new Set([...(d.hero.mobileImageGallery ?? []), body.url])),
           },
         }));
       } else {
@@ -255,7 +422,7 @@ export default function HomeCmsPage() {
           about: {
             ...d.about,
             imageUrl: body.url,
-            imageGallery: [...(d.about.imageGallery ?? []), body.url],
+            imageGallery: Array.from(new Set([...(d.about.imageGallery ?? []), body.url])),
           },
         }));
       }
@@ -266,8 +433,94 @@ export default function HomeCmsPage() {
     }
   }
 
-  // Picking/removing from a photo stack never re-uploads anything — it just
-  // repoints the active imageUrl/mobileImageUrl at an already-stored B2 file.
+  async function uploadMultipleImages(field: "hero" | "heroMobile" | "about", files: FileList) {
+    setUploadingField(field);
+    setError(null);
+    try {
+      const urls: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const formData = new FormData();
+        formData.append("file", files[i]);
+        const body = await api.upload("/api/cms/upload-image", formData);
+        urls.push(body.url);
+      }
+      if (urls.length === 0) return;
+
+      if (field === "hero") {
+        setDraft((d) => {
+          const current = d.hero.imageGallery ?? [];
+          return {
+            ...d,
+            hero: {
+              ...d.hero,
+              imageUrl: d.hero.imageUrl || urls[0],
+              imageGallery: Array.from(new Set([...current, ...urls])),
+            },
+          };
+        });
+      } else if (field === "heroMobile") {
+        setDraft((d) => {
+          const current = d.hero.mobileImageGallery ?? [];
+          return {
+            ...d,
+            hero: {
+              ...d.hero,
+              mobileImageUrl: d.hero.mobileImageUrl || urls[0],
+              mobileImageGallery: Array.from(new Set([...current, ...urls])),
+            },
+          };
+        });
+      } else {
+        setDraft((d) => {
+          const current = d.about.imageGallery ?? [];
+          return {
+            ...d,
+            about: {
+              ...d.about,
+              imageUrl: d.about.imageUrl || urls[0],
+              imageGallery: Array.from(new Set([...current, ...urls])),
+            },
+          };
+        });
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Upload failed — try again.");
+    } finally {
+      setUploadingField(null);
+    }
+  }
+
+  function addUrlToGallery(field: "hero" | "heroMobile" | "about", url: string) {
+    if (field === "hero") {
+      setDraft((d) => ({
+        ...d,
+        hero: {
+          ...d.hero,
+          imageUrl: d.hero.imageUrl || url,
+          imageGallery: Array.from(new Set([...(d.hero.imageGallery ?? []), url])),
+        },
+      }));
+    } else if (field === "heroMobile") {
+      setDraft((d) => ({
+        ...d,
+        hero: {
+          ...d.hero,
+          mobileImageUrl: d.hero.mobileImageUrl || url,
+          mobileImageGallery: Array.from(new Set([...(d.hero.mobileImageGallery ?? []), url])),
+        },
+      }));
+    } else {
+      setDraft((d) => ({
+        ...d,
+        about: {
+          ...d.about,
+          imageUrl: d.about.imageUrl || url,
+          imageGallery: Array.from(new Set([...(d.about.imageGallery ?? []), url])),
+        },
+      }));
+    }
+  }
+
   function selectFromGallery(field: "hero" | "heroMobile" | "about", url: string) {
     if (field === "hero") {
       setDraft((d) => ({ ...d, hero: { ...d.hero, imageUrl: url } }));
@@ -278,25 +531,46 @@ export default function HomeCmsPage() {
     }
   }
 
-  function deleteFromGallery(field: "hero" | "heroMobile" | "about", url: string) {
+  function removeFromGallery(field: "hero" | "heroMobile" | "about", url: string) {
     if (field === "hero") {
-      setDraft((d) => ({
-        ...d,
-        hero: { ...d.hero, imageGallery: (d.hero.imageGallery ?? []).filter((u) => u !== url) },
-      }));
+      setDraft((d) => {
+        const remaining = (d.hero.imageGallery ?? []).filter((u) => u !== url);
+        const nextActive = d.hero.imageUrl === url ? (remaining[0] ?? "") : d.hero.imageUrl;
+        return {
+          ...d,
+          hero: {
+            ...d.hero,
+            imageUrl: nextActive,
+            imageGallery: remaining,
+          },
+        };
+      });
     } else if (field === "heroMobile") {
-      setDraft((d) => ({
-        ...d,
-        hero: {
-          ...d.hero,
-          mobileImageGallery: (d.hero.mobileImageGallery ?? []).filter((u) => u !== url),
-        },
-      }));
+      setDraft((d) => {
+        const remaining = (d.hero.mobileImageGallery ?? []).filter((u) => u !== url);
+        const nextActive = d.hero.mobileImageUrl === url ? (remaining[0] ?? "") : d.hero.mobileImageUrl;
+        return {
+          ...d,
+          hero: {
+            ...d.hero,
+            mobileImageUrl: nextActive,
+            mobileImageGallery: remaining,
+          },
+        };
+      });
     } else {
-      setDraft((d) => ({
-        ...d,
-        about: { ...d.about, imageGallery: (d.about.imageGallery ?? []).filter((u) => u !== url) },
-      }));
+      setDraft((d) => {
+        const remaining = (d.about.imageGallery ?? []).filter((u) => u !== url);
+        const nextActive = d.about.imageUrl === url ? (remaining[0] ?? "") : d.about.imageUrl;
+        return {
+          ...d,
+          about: {
+            ...d.about,
+            imageUrl: nextActive,
+            imageGallery: remaining,
+          },
+        };
+      });
     }
   }
 
@@ -401,42 +675,82 @@ export default function HomeCmsPage() {
         {/* Hero */}
         <SectionCard
           title="Hero banner"
-          description="A pure visual banner at the top of the page — no headline or body copy by design. Leave the image blank to use the generated clay/glass illustration."
+          description="A pure visual banner at the top of the page. Upload multiple images to enable rotation on refresh, and position them with live crop preview."
         >
-          <ImageUploadField
-            label="Banner image"
-            hint="Leave empty to use the generated clay/glass illustration instead."
-            value={draft.hero.imageUrl}
-            uploading={uploadingField === "hero"}
-            onUpload={(file) => uploadImage("hero", file)}
-            onClear={() => setDraft((d) => ({ ...d, hero: { ...d.hero, imageUrl: "" } }))}
-          />
-          <PhotoStack
-            images={draft.hero.imageGallery ?? []}
+          {/* Multi-image rotation manager for desktop */}
+          <MultiImageRotationManager
+            title="Desktop Banner Images"
+            description="Add one or more images. When rotation is enabled, visitors will see a different banner each time they visit or refresh the home page."
             activeUrl={draft.hero.imageUrl}
-            onSelect={(url) => selectFromGallery("hero", url)}
-            onDelete={(url) => deleteFromGallery("hero", url)}
+            gallery={draft.hero.imageGallery ?? []}
+            randomiseOnLoad={draft.hero.randomiseOnLoad ?? false}
+            onToggleRandomise={(checked) =>
+              setDraft((d) => ({ ...d, hero: { ...d.hero, randomiseOnLoad: checked } }))
+            }
+            onSelectActive={(url) => selectFromGallery("hero", url)}
+            onRemoveFromGallery={(url) => removeFromGallery("hero", url)}
+            onUploadImages={(files) => uploadMultipleImages("hero", files)}
+            onAddUrl={(url) => addUrlToGallery("hero", url)}
+            uploading={uploadingField === "hero"}
           />
-          <div className="mt-4">
-            <ImageUploadField
-              label="Mobile banner image (optional)"
-              hint="A separate crop for small screens — a wide desktop banner often needs heavy cropping to fit a phone width, so this lets you pick something that looks right there instead. Falls back to the banner image above if left empty."
-              value={draft.hero.mobileImageUrl ?? ""}
-              uploading={uploadingField === "heroMobile"}
-              onUpload={(file) => uploadImage("heroMobile", file)}
-              onClear={() => setDraft((d) => ({ ...d, hero: { ...d.hero, mobileImageUrl: "" } }))}
+
+          {/* Live crop & position editor for desktop banner */}
+          {draft.hero.imageUrl && (
+            <ImagePlacementEditor
+              title="Desktop Banner Crop & Alignment"
+              subtitle="Interactive preview of how the banner is cropped on desktop. Click any position on the grid to change the focal point."
+              imageUrl={draft.hero.imageUrl}
+              position={draft.hero.imagePosition}
+              onChangePosition={(pos) =>
+                setDraft((d) => ({ ...d, hero: { ...d.hero, imagePosition: pos } }))
+              }
+              aspectRatioClass="aspect-[16/6]"
             />
-            <PhotoStack
-              images={draft.hero.mobileImageGallery ?? []}
+          )}
+
+          {/* Mobile banner section */}
+          <div className="mt-4 pt-4 border-t border-slate-200 flex flex-col gap-4">
+            <div>
+              <h3 className="font-display font-semibold text-sm text-ink">Mobile Banner (Optional)</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Wide desktop banners can crop heavily on phones. You can provide mobile-specific images here, or leave empty to use the desktop banner.
+              </p>
+            </div>
+
+            <MultiImageRotationManager
+              title="Mobile Banner Images"
+              description="Separate images optimized for phone screen widths."
               activeUrl={draft.hero.mobileImageUrl ?? ""}
-              onSelect={(url) => selectFromGallery("heroMobile", url)}
-              onDelete={(url) => deleteFromGallery("heroMobile", url)}
+              gallery={draft.hero.mobileImageGallery ?? []}
+              randomiseOnLoad={draft.hero.randomiseOnLoad ?? false}
+              onToggleRandomise={(checked) =>
+                setDraft((d) => ({ ...d, hero: { ...d.hero, randomiseOnLoad: checked } }))
+              }
+              onSelectActive={(url) => selectFromGallery("heroMobile", url)}
+              onRemoveFromGallery={(url) => removeFromGallery("heroMobile", url)}
+              onUploadImages={(files) => uploadMultipleImages("heroMobile", files)}
+              onAddUrl={(url) => addUrlToGallery("heroMobile", url)}
+              uploading={uploadingField === "heroMobile"}
             />
+
+            {draft.hero.mobileImageUrl && (
+              <ImagePlacementEditor
+                title="Mobile Banner Crop & Alignment"
+                subtitle="Preview of the crop on a mobile screen aspect ratio."
+                imageUrl={draft.hero.mobileImageUrl}
+                position={draft.hero.mobileImagePosition}
+                onChangePosition={(pos) =>
+                  setDraft((d) => ({ ...d, hero: { ...d.hero, mobileImagePosition: pos } }))
+                }
+                aspectRatioClass="aspect-[16/9]"
+              />
+            )}
           </div>
-          <Field label="Image alt text">
+
+          <Field label="Banner alt text (accessibility)">
             <input
               className={inputClass}
-              placeholder="Describe the image for screen readers"
+              placeholder="Describe the banner for screen readers"
               value={draft.hero.altText}
               onChange={(e) =>
                 setDraft((d) => ({ ...d, hero: { ...d.hero, altText: e.target.value } }))
@@ -447,20 +761,36 @@ export default function HomeCmsPage() {
 
         {/* About */}
         <SectionCard title="About section">
-          <ImageUploadField
-            label="Photo"
-            hint="Leave empty to use the generated clay/glass illustration instead."
-            value={draft.about.imageUrl}
-            uploading={uploadingField === "about"}
-            onUpload={(file) => uploadImage("about", file)}
-            onClear={() => setDraft((d) => ({ ...d, about: { ...d.about, imageUrl: "" } }))}
-          />
-          <PhotoStack
-            images={draft.about.imageGallery ?? []}
+          {/* Multi-image rotation manager for about */}
+          <MultiImageRotationManager
+            title="About Section Photos"
+            description="Add one or more photos. When rotation is enabled, visitors will see a different photo each time they open or refresh the page."
             activeUrl={draft.about.imageUrl}
-            onSelect={(url) => selectFromGallery("about", url)}
-            onDelete={(url) => deleteFromGallery("about", url)}
+            gallery={draft.about.imageGallery ?? []}
+            randomiseOnLoad={draft.about.randomiseOnLoad ?? false}
+            onToggleRandomise={(checked) =>
+              setDraft((d) => ({ ...d, about: { ...d.about, randomiseOnLoad: checked } }))
+            }
+            onSelectActive={(url) => selectFromGallery("about", url)}
+            onRemoveFromGallery={(url) => removeFromGallery("about", url)}
+            onUploadImages={(files) => uploadMultipleImages("about", files)}
+            onAddUrl={(url) => addUrlToGallery("about", url)}
+            uploading={uploadingField === "about"}
           />
+
+          {/* Live crop & position editor for about photo */}
+          {draft.about.imageUrl && (
+            <ImagePlacementEditor
+              title="About Photo Alignment & Crop"
+              subtitle="Interactive preview of how the team photo aligns in the card."
+              imageUrl={draft.about.imageUrl}
+              position={draft.about.imagePosition}
+              onChangePosition={(pos) =>
+                setDraft((d) => ({ ...d, about: { ...d.about, imagePosition: pos } }))
+              }
+              aspectRatioClass="aspect-[4/3]"
+            />
+          )}
           <Field label="Title">
             <input
               className={inputClass}

@@ -84,46 +84,48 @@ export default function AssignmentsPage() {
         }
       />
 
-      <Card>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-slate uppercase tracking-wide border-b border-slate-200">
-              <th className="px-5 py-3 font-medium">Course</th>
-              <th className="px-5 py-3 font-medium">Assigned to</th>
-              <th className="px-5 py-3 font-medium text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {assignments.map((a) => (
-              <tr key={a.id}>
-                <td className="px-5 py-3.5 font-medium text-ink">{a.course?.title ?? a.courseId}</td>
-                <td className="px-5 py-3.5">
-                  <Badge tone="cool">
-                    <span className="flex items-center gap-1">
-                      {a.targetType === "INDIVIDUAL" ? <User size={11} /> : <Building2 size={11} />}
-                      {a.targetType === "INDIVIDUAL" ? a.employee?.name ?? "—" : a.department?.name ?? "—"}
-                    </span>
-                  </Badge>
-                </td>
-                <td className="px-5 py-3.5 text-right">
-                  <button
-                    onClick={() => unassign(a.id)}
-                    className="inline-flex items-center gap-1.5 text-xs font-medium text-slate hover:text-crimson"
-                  >
-                    <Trash2 size={13} /> Unassign
-                  </button>
-                </td>
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[500px]">
+            <thead>
+              <tr className="text-left text-xs text-slate uppercase tracking-wide border-b border-slate-200">
+                <th className="px-5 py-3 font-medium">Course</th>
+                <th className="px-5 py-3 font-medium">Assigned to</th>
+                <th className="px-5 py-3 font-medium text-right">Actions</th>
               </tr>
-            ))}
-            {!loading && assignments.length === 0 && (
-              <tr>
-                <td colSpan={3} className="px-5 py-8 text-center text-sm text-slate">
-                  No assignments yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {assignments.map((a) => (
+                <tr key={a.id}>
+                  <td className="px-5 py-3.5 font-medium text-ink">{a.course?.title ?? a.courseId}</td>
+                  <td className="px-5 py-3.5">
+                    <Badge tone="cool">
+                      <span className="flex items-center gap-1">
+                        {a.targetType === "INDIVIDUAL" ? <User size={11} /> : <Building2 size={11} />}
+                        {a.targetType === "INDIVIDUAL" ? a.employee?.name ?? "—" : a.department?.name ?? "—"}
+                      </span>
+                    </Badge>
+                  </td>
+                  <td className="px-5 py-3.5 text-right">
+                    <button
+                      onClick={() => unassign(a.id)}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-slate hover:text-crimson"
+                    >
+                      <Trash2 size={13} /> Unassign
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && assignments.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="px-5 py-8 text-center text-sm text-slate">
+                    No assignments yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
 
       {panelOpen && (

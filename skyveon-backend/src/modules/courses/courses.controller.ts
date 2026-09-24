@@ -4,6 +4,7 @@ import * as coursesService from "./courses.service";
 import { logActivity } from "../../lib/activityLog";
 import { ApiError } from "../../lib/apiError";
 import { prisma } from "../../lib/prisma";
+import { getStorage, makeStorageKey } from "../../lib/storage";
 
 // --- Admin: courses ------------------------------------------------------
 
@@ -21,6 +22,7 @@ const createCourseSchema = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
   department: z.string().optional(),
+  imageUrl: z.string().optional(),
 });
 
 export async function create(req: Request, res: Response) {
@@ -34,6 +36,7 @@ const updateCourseSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().optional(),
   department: z.string().optional(),
+  imageUrl: z.string().nullable().optional(),
 });
 
 export async function update(req: Request, res: Response) {
@@ -170,3 +173,30 @@ export async function downloadSubmissionFile(req: Request, res: Response) {
   res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(fileName)}"`);
   res.send(buffer);
 }
+
+export async function uploadCoverImage(req: Request, res: Response) {
+  if (!req.file) throw ApiError.badRequest("No file uploaded");
+  if (!req.file.mimetype.startsWith("image/")) {
+    throw ApiError.badRequest("Only image files are allowed.");
+  }
+  const key = makeStorageKey(req.file.originalname);
+  await getStorage().save(`courses/${key}`, req.file.buffer, req.file.mimetype);
+  await logActivity({ userId: req.user!.id, action: "course.upload_image" });
+  res.status(201).json({ url: `/api/courses/image/${key}` });
+}
+
+export async function serveCourseImage(req: Request, res: Response) {
+  const key = `courses/${req.params[0]}`;
+  try {
+    const buffer = await getStorage().read(key);
+    const ext = key.split(".").pop()?.toLowerCase();
+    const mime =
+      ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : ext === "gif" ? "image/gif" : "image/jpeg";
+    res.setHeader("Content-Type", mime);
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.send(buffer);
+  } catch {
+    throw ApiError.notFound("Image not found");
+  }
+}
+

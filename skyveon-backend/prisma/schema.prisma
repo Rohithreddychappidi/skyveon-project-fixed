@@ -155,6 +155,7 @@ model Course {
   title       String
   description String   @default("")
   department  String   @default("General")
+  imageUrl    String?  // optional cover image (URL or /api path)
 
   isDeleted Boolean  @default(false)
   createdAt DateTime @default(now())

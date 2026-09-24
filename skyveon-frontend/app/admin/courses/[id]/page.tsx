@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
 import { useParams, useRouter } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LessonTypeIcon, lessonTypeLabel } from "@/components/ui/lesson-icon";
-import { api, ApiError, downloadFile } from "@/lib/api";
+import { api, ApiError, downloadFile, resolveImageUrl } from "@/lib/api";
 import type { Course, Lesson, LessonType, LessonSubmission, Module } from "@/lib/api-types";
 import {
   Plus,
@@ -26,6 +27,7 @@ import {
   Pencil,
   FolderPlus,
   Folder,
+  ImageIcon,
 } from "lucide-react";
 
 const LESSON_TYPES: LessonType[] = ["VIDEO", "PDF", "PPT", "DOC", "IMAGE", "LINK", "ASSIGNMENT"];
@@ -382,6 +384,12 @@ export default function CourseDetailPage() {
   const router = useRouter();
   const [course, setCourse] = useState<Course | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Edit-course panel
+  const [editPanelOpen, setEditPanelOpen] = useState(false);
+  const [editForm, setEditForm] = useState({ title: "", description: "", department: "", imageUrl: "" });
+  const [editSaving, setEditSaving] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const coverInputRef = useRef<HTMLInputElement>(null);
   // Which module (or "ungrouped") the add-lesson form is currently open
   // for, and at what position within that module's own lesson list.
   // null = no form open anywhere.
@@ -409,6 +417,58 @@ export default function CourseDetailPage() {
     load().catch(() => setError("Couldn't load this course."));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
+
+  function openEditPanel() {
+    if (!course) return;
+    setEditForm({
+      title: course.title,
+      description: course.description,
+      department: course.department,
+      imageUrl: course.imageUrl ?? "",
+    });
+    setEditPanelOpen(true);
+  }
+
+  async function uploadCoverImage(file: File) {
+    setUploadingCover(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      let body: { url: string };
+      try {
+        body = await api.upload("/api/courses/upload-cover-image", fd);
+      } catch {
+        body = await api.upload("/api/cms/upload-image", fd);
+      }
+      setEditForm((f) => ({ ...f, imageUrl: body.url }));
+    } catch {
+      setError("Image upload failed — try again.");
+    } finally {
+      setUploadingCover(false);
+      if (coverInputRef.current) coverInputRef.current.value = "";
+    }
+  }
+
+  async function saveEditCourse(e: React.FormEvent) {
+    e.preventDefault();
+    if (!course || !editForm.title.trim()) return;
+    setEditSaving(true);
+    setError(null);
+    try {
+      await api.patch(`/api/courses/${course.id}`, {
+        title: editForm.title.trim(),
+        description: editForm.description,
+        department: editForm.department,
+        imageUrl: editForm.imageUrl || null,
+      });
+      setEditPanelOpen(false);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't save — try again.");
+    } finally {
+      setEditSaving(false);
+    }
+  }
 
   function lessonsInModule(mod: Module | null) {
     if (!course) return [];
@@ -686,12 +746,120 @@ export default function CourseDetailPage() {
             <Button variant="ghost" size="sm" onClick={() => router.push("/admin/courses")}>
               Back to courses
             </Button>
+            <Button variant="ghost" size="sm" onClick={openEditPanel}>
+              <Pencil size={14} /> Edit course
+            </Button>
             <Button variant="ghost" size="sm" onClick={deleteCourse} className="text-crimson hover:bg-crimson/5">
               <Trash2 size={14} /> Delete course
             </Button>
           </div>
         }
       />
+
+      {/* Course cover image */}
+      {course.imageUrl && (
+        <div className="mb-6 rounded-xl overflow-hidden border border-slate-200 h-40">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={resolveImageUrl(course.imageUrl)}
+            alt={course.title}
+            className="w-full h-full object-cover"
+          />
+        </div>
+      )}
+
+      {/* Edit course slide-over panel */}
+      {editPanelOpen && (
+        <div className="fixed inset-0 z-20 flex justify-end bg-ink/20" onClick={() => setEditPanelOpen(false)}>
+          <div
+            className="w-full max-w-md h-full bg-white border-l border-slate-200 p-6 overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="font-display font-semibold text-lg text-ink">Edit course</h3>
+              <button onClick={() => setEditPanelOpen(false)}>
+                <XIcon size={20} className="text-slate" />
+              </button>
+            </div>
+            <form onSubmit={saveEditCourse} className="flex flex-col gap-4">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-ink">Title</span>
+                <input
+                  value={editForm.title}
+                  onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                  required
+                  className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo focus:ring-2 focus:ring-indigo/15"
+                />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-ink">Description</span>
+                <textarea
+                  value={editForm.description}
+                  onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                  rows={3}
+                  className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo focus:ring-2 focus:ring-indigo/15"
+                />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-ink">Department</span>
+                <input
+                  value={editForm.department}
+                  onChange={(e) => setEditForm({ ...editForm, department: e.target.value })}
+                  className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo focus:ring-2 focus:ring-indigo/15"
+                />
+              </label>
+              {/* Cover image */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-ink">Cover image</span>
+                {editForm.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={resolveImageUrl(editForm.imageUrl)}
+                    alt="Cover"
+                    className="w-full h-32 object-cover rounded-lg border border-slate-200"
+                  />
+                ) : (
+                  <div className="w-full h-32 rounded-lg border border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
+                    <ImageIcon size={24} className="text-slate-300" />
+                  </div>
+                )}
+                <div className="flex items-center gap-3 mt-1">
+                  <label className="cursor-pointer">
+                    <input
+                      ref={coverInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) uploadCoverImage(f);
+                      }}
+                    />
+                    <span className="inline-flex items-center gap-1.5 text-sm text-indigo hover:underline">
+                      <Upload size={14} /> {uploadingCover ? "Uploading…" : editForm.imageUrl ? "Replace" : "Upload image"}
+                    </span>
+                  </label>
+                  {editForm.imageUrl && !uploadingCover && (
+                    <button type="button" onClick={() => setEditForm((f) => ({ ...f, imageUrl: "" }))} className="text-xs text-slate hover:text-crimson">
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <input
+                  value={editForm.imageUrl}
+                  onChange={(e) => setEditForm({ ...editForm, imageUrl: e.target.value })}
+                  placeholder="Or paste an image URL…"
+                  className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo focus:ring-2 focus:ring-indigo/15 mt-1"
+                />
+              </div>
+              {error && <p className="text-xs text-crimson">{error}</p>}
+              <Button type="submit" className="w-full mt-2" disabled={editSaving || uploadingCover}>
+                {editSaving ? "Saving…" : "Save changes"}
+              </Button>
+            </form>
+          </div>
+        </div>
+      )}
 
       <Card className="p-5 mb-6">
         <div className="flex items-center justify-between mb-4">

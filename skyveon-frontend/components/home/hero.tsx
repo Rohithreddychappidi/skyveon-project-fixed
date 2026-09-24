@@ -1,36 +1,85 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { GraduationCap, BookOpen, PlayCircle, Users } from "lucide-react";
-import type { HomeCmsContent } from "@/lib/cms-types";
+import type { HomeCmsContent, ImagePosition } from "@/lib/cms-types";
 import { resolveImageUrl } from "@/lib/api";
 
+/** Maps our ImagePosition union to a CSS object-position value. */
+function positionToCSS(pos: ImagePosition | undefined): string {
+  if (!pos) return "center";
+  return pos.replace("-", " ");
+}
+
 export function Hero({ hero }: { hero: HomeCmsContent["hero"] }) {
-  // Falls back to the main banner image if no mobile-specific one was
-  // uploaded, so nothing breaks for content saved before this field existed.
-  const mobileSrc = hero.mobileImageUrl || hero.imageUrl;
+  // When randomiseOnLoad is enabled, pick a random entry from imageGallery.
+  // We do this inside a useEffect so it runs only client-side (avoiding
+  // hydration mismatches — server and client would otherwise pick different
+  // random values).
+  const [activeUrl, setActiveUrl] = useState(hero.imageUrl);
+  const [activeMobileUrl, setActiveMobileUrl] = useState(
+    hero.mobileImageUrl || hero.imageUrl
+  );
+
+  useEffect(() => {
+    const desktopPool = Array.from(
+      new Set([...(hero.imageGallery ?? []), ...(hero.imageUrl ? [hero.imageUrl] : [])])
+    );
+    if (hero.randomiseOnLoad && desktopPool.length > 1) {
+      const picked = desktopPool[Math.floor(Math.random() * desktopPool.length)];
+      setActiveUrl(picked);
+    } else {
+      setActiveUrl(hero.imageUrl);
+    }
+
+    const fallbackMobile = hero.mobileImageUrl || hero.imageUrl;
+    const mobilePool = Array.from(
+      new Set([
+        ...(hero.mobileImageGallery ?? []),
+        ...(fallbackMobile ? [fallbackMobile] : []),
+      ])
+    );
+    if (hero.randomiseOnLoad && mobilePool.length > 1) {
+      const picked = mobilePool[Math.floor(Math.random() * mobilePool.length)];
+      setActiveMobileUrl(picked);
+    } else {
+      setActiveMobileUrl(fallbackMobile);
+    }
+  }, [
+    hero.imageUrl,
+    hero.mobileImageUrl,
+    hero.imageGallery,
+    hero.mobileImageGallery,
+    hero.randomiseOnLoad,
+  ]);
+
+  const objectPosition = positionToCSS(hero.imagePosition);
+  const mobileObjectPosition = positionToCSS(
+    hero.mobileImagePosition ?? hero.imagePosition
+  );
 
   return (
     <section className="w-full px-3 sm:px-4 lg:px-6 pt-4">
       <div className="clay relative overflow-hidden rounded-[28px] sm:rounded-[36px] h-[240px] sm:h-[480px] lg:h-[560px]">
-        {hero.imageUrl ? (
+        {activeUrl ? (
           <>
-            {/* Mobile: its own image (or a fallback to the desktop one),
-                cleanly cropped for a narrow/short box — no more forcing one
-                wide banner to also work at phone proportions. */}
-            {mobileSrc && (
+            {/* Mobile image */}
+            {activeMobileUrl && (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={resolveImageUrl(mobileSrc)}
+                src={resolveImageUrl(activeMobileUrl)}
                 alt={hero.altText || "Skyveon Learning Hub"}
                 className="absolute inset-0 h-full w-full object-cover sm:hidden"
+                style={{ objectPosition: mobileObjectPosition }}
               />
             )}
-            {/* Desktop/tablet: the original banner image, unchanged. */}
+            {/* Desktop/tablet image */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={resolveImageUrl(hero.imageUrl)}
+              src={resolveImageUrl(activeUrl)}
               alt={hero.altText || "Skyveon Learning Hub"}
               className="absolute inset-0 h-full w-full object-cover hidden sm:block"
+              style={{ objectPosition }}
             />
           </>
         ) : (

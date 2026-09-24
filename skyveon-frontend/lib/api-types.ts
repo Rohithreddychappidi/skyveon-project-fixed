@@ -105,6 +105,7 @@ export interface Course {
   title: string;
   description: string;
   department: string;
+  imageUrl?: string | null;
   lessons: Lesson[];
   modules: Module[];
   createdAt: string;
@@ -116,6 +117,7 @@ export interface PublicCourse {
   title: string;
   description: string;
   department: string;
+  imageUrl?: string | null;
   lessonCount: number;
   lessonTypes: LessonType[];
 }

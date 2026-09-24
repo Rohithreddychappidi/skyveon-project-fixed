@@ -135,79 +135,81 @@ export default function EmployeesPage() {
         }
       />
 
-      <Card>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-slate uppercase tracking-wide border-b border-slate-200">
-              <th className="px-5 py-3 font-medium">Name</th>
-              <th className="px-5 py-3 font-medium">Department</th>
-              <th className="px-5 py-3 font-medium">Account</th>
-              <th className="px-5 py-3 font-medium">Status</th>
-              <th className="px-5 py-3 font-medium text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {employees.map((emp) => (
-              <tr key={emp.id}>
-                <td className="px-5 py-3.5">
-                  <p className="font-medium text-ink">{emp.name}</p>
-                  <p className="text-xs text-slate">{emp.email}</p>
-                </td>
-                <td className="px-5 py-3.5 text-slate">{emp.department?.name ?? "—"}</td>
-                <td className="px-5 py-3.5">
-                  {!emp.hasSetPassword ? (
-                    <button
-                      onClick={() => resendSetup(emp.id)}
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo hover:underline"
-                    >
-                      <Mail size={12} /> Resend setup link
-                    </button>
-                  ) : (
-                    <span className="text-xs text-slate">Active</span>
-                  )}
-                </td>
-                <td className="px-5 py-3.5">
-                  <Badge tone={emp.status === "ACTIVE" ? "success" : "neutral"}>
-                    {emp.status === "ACTIVE" ? "active" : "inactive"}
-                  </Badge>
-                </td>
-                <td className="px-5 py-3.5 text-right">
-                  <div className="flex items-center justify-end gap-3">
-                    <button
-                      onClick={() => toggleStatus(emp)}
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-slate hover:text-indigo"
-                    >
-                      {emp.status === "ACTIVE" ? (
-                        <>
-                          <UserMinus size={14} /> Deactivate
-                        </>
-                      ) : (
-                        <>
-                          <UserCheck size={14} /> Reactivate
-                        </>
-                      )}
-                    </button>
-                    {user?.role === "MASTER_ADMIN" && (
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
+            <thead>
+              <tr className="text-left text-xs text-slate uppercase tracking-wide border-b border-slate-200">
+                <th className="px-5 py-3 font-medium">Name</th>
+                <th className="px-5 py-3 font-medium">Department</th>
+                <th className="px-5 py-3 font-medium">Account</th>
+                <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 font-medium text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {employees.map((emp) => (
+                <tr key={emp.id}>
+                  <td className="px-5 py-3.5">
+                    <p className="font-medium text-ink">{emp.name}</p>
+                    <p className="text-xs text-slate">{emp.email}</p>
+                  </td>
+                  <td className="px-5 py-3.5 text-slate">{emp.department?.name ?? "—"}</td>
+                  <td className="px-5 py-3.5">
+                    {!emp.hasSetPassword ? (
                       <button
-                        onClick={() => setDeleteTarget(emp)}
-                        className="inline-flex items-center gap-1.5 text-xs font-medium text-slate hover:text-crimson"
+                        onClick={() => resendSetup(emp.id)}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo hover:underline"
                       >
-                        <Trash2 size={14} /> Delete permanently
+                        <Mail size={12} /> Resend setup link
                       </button>
+                    ) : (
+                      <span className="text-xs text-slate">Active</span>
                     )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {!loading && employees.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-5 py-8 text-center text-sm text-slate">
-                  No employees yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <Badge tone={emp.status === "ACTIVE" ? "success" : "neutral"}>
+                      {emp.status === "ACTIVE" ? "active" : "inactive"}
+                    </Badge>
+                  </td>
+                  <td className="px-5 py-3.5 text-right">
+                    <div className="flex items-center justify-end gap-3">
+                      <button
+                        onClick={() => toggleStatus(emp)}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-slate hover:text-indigo"
+                      >
+                        {emp.status === "ACTIVE" ? (
+                          <>
+                            <UserMinus size={14} /> Deactivate
+                          </>
+                        ) : (
+                          <>
+                            <UserCheck size={14} /> Reactivate
+                          </>
+                        )}
+                      </button>
+                      {user?.role === "MASTER_ADMIN" && (
+                        <button
+                          onClick={() => setDeleteTarget(emp)}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate hover:text-crimson"
+                        >
+                          <Trash2 size={14} /> Delete permanently
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!loading && employees.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-5 py-8 text-center text-sm text-slate">
+                    No employees yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
 
       {panelOpen && (

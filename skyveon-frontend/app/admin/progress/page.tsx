@@ -51,49 +51,51 @@ export default function ProgressPage() {
         }
       />
 
-      <Card>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-slate uppercase tracking-wide border-b border-slate-200">
-              <th className="px-5 py-3 font-medium">Employee</th>
-              <th className="px-5 py-3 font-medium">Progress</th>
-              <th className="px-5 py-3 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {rows?.map((row) => (
-              <tr key={row.employee.id}>
-                <td className="px-5 py-3.5">
-                  <p className="font-medium text-ink">{row.employee.name}</p>
-                  <p className="text-xs text-slate">{row.employee.email}</p>
-                </td>
-                <td className="px-5 py-3.5 w-48">
-                  <ProgressBar percent={row.percent} showLabel />
-                  <span className="text-[11px] text-slate font-mono">
-                    {row.completedLessons}/{row.totalLessons} lessons
-                  </span>
-                </td>
-                <td className="px-5 py-3.5">
-                  <Badge tone={statusTone[row.status]}>{statusLabel[row.status]}</Badge>
-                </td>
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[500px]">
+            <thead>
+              <tr className="text-left text-xs text-slate uppercase tracking-wide border-b border-slate-200">
+                <th className="px-5 py-3 font-medium">Employee</th>
+                <th className="px-5 py-3 font-medium">Progress</th>
+                <th className="px-5 py-3 font-medium">Status</th>
               </tr>
-            ))}
-            {rows !== null && rows.length === 0 && (
-              <tr>
-                <td colSpan={3} className="px-5 py-8 text-center text-sm text-slate">
-                  No one is assigned to this course yet.
-                </td>
-              </tr>
-            )}
-            {rows === null && !loading && (
-              <tr>
-                <td colSpan={3} className="px-5 py-8 text-center text-sm text-slate">
-                  Loading…
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows?.map((row) => (
+                <tr key={row.employee.id}>
+                  <td className="px-5 py-3.5">
+                    <p className="font-medium text-ink">{row.employee.name}</p>
+                    <p className="text-xs text-slate">{row.employee.email}</p>
+                  </td>
+                  <td className="px-5 py-3.5 w-48">
+                    <ProgressBar percent={row.percent} showLabel />
+                    <span className="text-[11px] text-slate font-mono">
+                      {row.completedLessons}/{row.totalLessons} lessons
+                    </span>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <Badge tone={statusTone[row.status]}>{statusLabel[row.status]}</Badge>
+                  </td>
+                </tr>
+              ))}
+              {rows !== null && rows.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="px-5 py-8 text-center text-sm text-slate">
+                    No one is assigned to this course yet.
+                  </td>
+                </tr>
+              )}
+              {rows === null && !loading && (
+                <tr>
+                  <td colSpan={3} className="px-5 py-8 text-center text-sm text-slate">
+                    Loading…
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
 
       {!loading && courses.length === 0 && (

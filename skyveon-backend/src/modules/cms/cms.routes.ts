@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../../lib/asyncHandler";
-import { requireAuth, requireRole, requirePermission } from "../../middleware/auth";
+import { requireAuth, requireRole, requirePermission, requireAnyPermission } from "../../middleware/auth";
 import { upload } from "../../middleware/upload";
 import { prisma } from "../../lib/prisma";
 import { logActivity } from "../../lib/activityLog";
@@ -54,7 +54,7 @@ cmsRouter.post(
   "/upload-image",
   requireAuth,
   requireRole("ADMIN"),
-  requirePermission("MANAGE_CMS"),
+  requireAnyPermission("MANAGE_CMS", "MANAGE_COURSES"),
   upload.single("file"),
   asyncHandler(async (req, res) => {
     if (!req.file) throw ApiError.badRequest("No file uploaded");

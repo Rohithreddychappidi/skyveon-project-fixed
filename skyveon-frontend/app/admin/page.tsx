@@ -83,7 +83,7 @@ export default function AdminDashboard() {
         subtitle="A quick look at how training is progressing across Skyveon."
       />
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         {stats.map((s) => (
           <Card key={s.label} className="p-5">
             <div className="flex items-center justify-between mb-4">
@@ -104,8 +104,8 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <Card className="col-span-2 p-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="lg:col-span-2 p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-display font-semibold text-ink">Recent activity</h3>
           </div>

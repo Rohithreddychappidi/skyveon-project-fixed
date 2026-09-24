@@ -8,6 +8,7 @@ export const coursesRouter = Router();
 
 // Public — no auth. Must come first, before the blanket requireAuth below.
 coursesRouter.get("/public", asyncHandler(controller.listPublic));
+coursesRouter.get(/^\/image\/(.+)/, asyncHandler(controller.serveCourseImage));
 
 coursesRouter.use(requireAuth);
 
@@ -17,6 +18,12 @@ coursesRouter.get("/mine/:courseId", asyncHandler(controller.getMine));
 
 // Admin-only from here down
 coursesRouter.use(requireRole("ADMIN"), requirePermission("MANAGE_COURSES"));
+
+coursesRouter.post(
+  "/upload-cover-image",
+  upload.single("file"),
+  asyncHandler(controller.uploadCoverImage)
+);
 
 coursesRouter.get("/", asyncHandler(controller.listAdmin));
 coursesRouter.post("/", asyncHandler(controller.create));

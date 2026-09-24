@@ -23,18 +23,19 @@ export async function getCourseAdmin(id: string) {
   return course;
 }
 
-export async function createCourse(input: { title: string; description?: string; department?: string; createdById: string }) {
+export async function createCourse(input: { title: string; description?: string; department?: string; imageUrl?: string; createdById: string }) {
   return prisma.course.create({
     data: {
       title: input.title,
       description: input.description ?? "",
       department: input.department ?? "General",
+      imageUrl: input.imageUrl ?? null,
       createdById: input.createdById,
     },
   });
 }
 
-export async function updateCourse(id: string, input: { title?: string; description?: string; department?: string }) {
+export async function updateCourse(id: string, input: { title?: string; description?: string; department?: string; imageUrl?: string | null }) {
   await getCourseAdmin(id);
   return prisma.course.update({ where: { id }, data: input });
 }
@@ -301,6 +302,7 @@ export async function listCoursesPublic() {
     title: c.title,
     description: c.description,
     department: c.department,
+    imageUrl: c.imageUrl ?? null,
     lessonCount: c.lessons.length,
     lessonTypes: [...new Set(c.lessons.map((l) => l.type))],
   }));
