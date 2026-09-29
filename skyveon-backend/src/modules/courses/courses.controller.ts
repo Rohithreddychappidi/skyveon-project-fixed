@@ -60,6 +60,8 @@ const addLessonSchema = z.object({
   linkUrl: z.string().url().optional(),
   durationSeconds: z.number().int().positive().optional(),
   assignmentPrompt: z.string().optional(),
+  moduleId: z.string().nullable().optional(),
+  position: z.number().int().min(0).optional(),
 });
 
 export async function addLesson(req: Request, res: Response) {
@@ -80,6 +82,7 @@ const updateLessonSchema = z.object({
   linkUrl: z.string().url().optional(),
   durationSeconds: z.number().int().positive().optional(),
   assignmentPrompt: z.string().optional(),
+  moduleId: z.string().nullable().optional(),
 });
 
 export async function updateLesson(req: Request, res: Response) {
@@ -200,3 +203,31 @@ export async function serveCourseImage(req: Request, res: Response) {
   }
 }
 
+// --- Admin: modules -----------------------------------------------------------
+
+const moduleSchema = z.object({ title: z.string().min(1) });
+const reorderModulesSchema = z.object({ moduleIds: z.array(z.string()).min(1) });
+
+export async function createModule(req: Request, res: Response) {
+  const { title } = moduleSchema.parse(req.body);
+  const mod = await coursesService.createModule(req.params.courseId, { title });
+  await logActivity({ userId: req.user!.id, action: "module.create", metadata: { moduleId: mod.id } });
+  res.status(201).json({ module: mod });
+}
+
+export async function updateModule(req: Request, res: Response) {
+  const { title } = moduleSchema.parse(req.body);
+  const mod = await coursesService.updateModule(req.params.moduleId, { title });
+  res.json({ module: mod });
+}
+
+export async function reorderModules(req: Request, res: Response) {
+  const { moduleIds } = reorderModulesSchema.parse(req.body);
+  await coursesService.reorderModules(req.params.courseId, moduleIds);
+  res.status(204).send();
+}
+
+export async function removeModule(req: Request, res: Response) {
+  await coursesService.softDeleteModule(req.params.moduleId);
+  res.status(204).send();
+}

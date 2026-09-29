@@ -165,15 +165,40 @@ model Course {
   createdBy   User?   @relation("CourseCreatedBy", fields: [createdById], references: [id])
 
   lessons     Lesson[]
+  modules     Module[]
   assignments Assignment[]
 
   @@map("courses")
+}
+
+// Optional grouping of lessons within a course (e.g. "Week 1", "Module 2").
+// Lessons reference a module via moduleId; ungrouped lessons have moduleId = null.
+model Module {
+  id       String  @id @default(cuid())
+  courseId String
+  course   Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  title     String
+  order     Int     @default(0)
+  isDeleted Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lessons Lesson[]
+
+  @@index([courseId, order])
+  @@map("modules")
 }
 
 model Lesson {
   id       String     @id @default(cuid())
   courseId String
   course   Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  // Optional module grouping
+  moduleId String?
+  module   Module? @relation(fields: [moduleId], references: [id], onDelete: SetNull)
 
   title     String
   type      LessonType

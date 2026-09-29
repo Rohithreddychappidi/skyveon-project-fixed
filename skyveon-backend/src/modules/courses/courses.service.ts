@@ -9,7 +9,10 @@ import type { LessonType, Course, Lesson } from "@prisma/client";
 export async function listCoursesAdmin() {
   return prisma.course.findMany({
     where: { isDeleted: false },
-    include: { lessons: { where: { isDeleted: false }, orderBy: { order: "asc" } } },
+    include: {
+      modules: { where: { isDeleted: false }, orderBy: { order: "asc" } },
+      lessons: { where: { isDeleted: false }, orderBy: { order: "asc" } },
+    },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -17,7 +20,10 @@ export async function listCoursesAdmin() {
 export async function getCourseAdmin(id: string) {
   const course = await prisma.course.findFirst({
     where: { id, isDeleted: false },
-    include: { lessons: { where: { isDeleted: false }, orderBy: { order: "asc" } } },
+    include: {
+      modules: { where: { isDeleted: false }, orderBy: { order: "asc" } },
+      lessons: { where: { isDeleted: false }, orderBy: { order: "asc" } },
+    },
   });
   if (!course) throw ApiError.notFound("Course not found");
   return course;
@@ -49,22 +55,44 @@ export async function softDeleteCourse(id: string) {
 
 // --- Lessons (admin) ---------------------------------------------------------
 
-export async function addLesson(courseId: string, input: { title: string; type: LessonType; linkUrl?: string; durationSeconds?: number; assignmentPrompt?: string }) {
+export async function addLesson(courseId: string, input: { title: string; type: LessonType; linkUrl?: string; durationSeconds?: number; assignmentPrompt?: string; moduleId?: string | null; position?: number }) {
   await getCourseAdmin(courseId);
-  const last = await prisma.lesson.findFirst({
-    where: { courseId, isDeleted: false },
-    orderBy: { order: "desc" },
-  });
+
+  // If inserting at a position within a module (or ungrouped), compute the
+  // correct order value by shifting existing lessons if needed.
+  let order: number;
+  if (input.position !== undefined) {
+    // Shift all lessons at or after position up by 1
+    const lessonIds = await prisma.lesson.findMany({
+      where: { courseId, isDeleted: false },
+      orderBy: { order: "asc" },
+      select: { id: true, order: true },
+    });
+    // Re-number from scratch to keep gaps clean
+    order = input.position;
+    await prisma.$transaction(
+      lessonIds
+        .filter((l) => l.order >= input.position!)
+        .map((l) => prisma.lesson.update({ where: { id: l.id }, data: { order: l.order + 1 } }))
+    );
+  } else {
+    const last = await prisma.lesson.findFirst({
+      where: { courseId, isDeleted: false },
+      orderBy: { order: "desc" },
+    });
+    order = (last?.order ?? -1) + 1;
+  }
 
   return prisma.lesson.create({
     data: {
       courseId,
+      moduleId: input.moduleId ?? null,
       title: input.title,
       type: input.type,
       linkUrl: input.linkUrl,
       durationSeconds: input.durationSeconds,
       assignmentPrompt: input.type === "ASSIGNMENT" ? input.assignmentPrompt : undefined,
-      order: (last?.order ?? -1) + 1,
+      order,
       conversionStatus: input.type === "PPT" || input.type === "DOC" ? "PENDING" : "NOT_REQUIRED",
     },
   });
@@ -72,7 +100,7 @@ export async function addLesson(courseId: string, input: { title: string; type: 
 
 export async function updateLesson(
   lessonId: string,
-  input: { title?: string; linkUrl?: string; durationSeconds?: number; assignmentPrompt?: string }
+  input: { title?: string; linkUrl?: string; durationSeconds?: number; assignmentPrompt?: string; moduleId?: string | null }
 ) {
   const lesson = await getLessonOr404(lessonId);
   return prisma.lesson.update({ where: { id: lesson.id }, data: input });
@@ -343,4 +371,42 @@ export async function getSubmissionFile(submissionId: string) {
   if (!submission?.fileKey) throw ApiError.notFound("No file attached to this submission.");
   const raw = await getStorage().read(submission.fileKey);
   return { buffer: raw, mime: submission.fileMime ?? "application/octet-stream", fileName: submission.fileName ?? "submission" };
+}
+
+// --- Modules (admin) ----------------------------------------------------------
+
+async function getModuleOr404(id: string) {
+  const mod = await prisma.module.findFirst({ where: { id, isDeleted: false } });
+  if (!mod) throw ApiError.notFound("Module not found");
+  return mod;
+}
+
+export async function createModule(courseId: string, input: { title: string }) {
+  await getCourseAdmin(courseId);
+  const last = await prisma.module.findFirst({
+    where: { courseId, isDeleted: false },
+    orderBy: { order: "desc" },
+  });
+  return prisma.module.create({
+    data: { courseId, title: input.title.trim(), order: (last?.order ?? -1) + 1 },
+  });
+}
+
+export async function updateModule(moduleId: string, input: { title: string }) {
+  const mod = await getModuleOr404(moduleId);
+  return prisma.module.update({ where: { id: mod.id }, data: { title: input.title.trim() } });
+}
+
+export async function reorderModules(courseId: string, orderedModuleIds: string[]) {
+  await getCourseAdmin(courseId);
+  await prisma.$transaction(
+    orderedModuleIds.map((id, index) => prisma.module.update({ where: { id }, data: { order: index } }))
+  );
+}
+
+export async function softDeleteModule(moduleId: string) {
+  const mod = await getModuleOr404(moduleId);
+  // Unlink lessons from the deleted module so they become ungrouped
+  await prisma.lesson.updateMany({ where: { moduleId: mod.id }, data: { moduleId: null } });
+  return prisma.module.update({ where: { id: mod.id }, data: { isDeleted: true } });
 }

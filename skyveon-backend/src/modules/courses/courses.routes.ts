@@ -47,3 +47,9 @@ coursesRouter.post("/lessons/:lessonId/retry-conversion", asyncHandler(controlle
 coursesRouter.get("/lessons/:lessonId/submissions", asyncHandler(controller.listSubmissions));
 coursesRouter.patch("/submissions/:submissionId/review", asyncHandler(controller.reviewSubmission));
 coursesRouter.get("/submissions/:submissionId/file", asyncHandler(controller.downloadSubmissionFile));
+
+// Module CRUD — group lessons into named sections within a course
+coursesRouter.post("/:courseId/modules", asyncHandler(controller.createModule));
+coursesRouter.patch("/:courseId/modules/reorder", asyncHandler(controller.reorderModules));
+coursesRouter.patch("/modules/:moduleId", asyncHandler(controller.updateModule));
+coursesRouter.delete("/modules/:moduleId", asyncHandler(controller.removeModule));
