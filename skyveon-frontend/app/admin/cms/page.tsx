@@ -8,7 +8,7 @@ import { useCms } from "@/components/cms/cms-context";
 import { defaultHomeContent } from "@/lib/cms-data";
 import type { HomeCmsContent, ImagePosition } from "@/lib/cms-types";
 import { api, ApiError, resolveImageUrl } from "@/lib/api";
-import type { Course } from "@/lib/api-types";
+import type { PublicCourse } from "@/lib/api-types";
 import {
   ExternalLink,
   Plus,
@@ -354,7 +354,7 @@ export default function HomeCmsPage() {
   const [savedFlash, setSavedFlash] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [allCourses, setAllCourses] = useState<Course[]>([]);
+  const [allCourses, setAllCourses] = useState<PublicCourse[]>([]);
   const [uploadingField, setUploadingField] = useState<"hero" | "heroMobile" | "about" | null>(null);
 
   // Sync the editable draft with persisted content once it has loaded from
@@ -365,8 +365,10 @@ export default function HomeCmsPage() {
   }, [hydrated]);
 
   useEffect(() => {
+    // The public list (id/title only) — /api/courses needs MANAGE_COURSES,
+    // which a CMS-only admin doesn't have.
     api
-      .get("/api/courses")
+      .get("/api/courses/public")
       .then((body) => setAllCourses(body.courses))
       .catch(() => setAllCourses([]));
   }, []);

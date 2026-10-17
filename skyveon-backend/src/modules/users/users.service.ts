@@ -1,6 +1,7 @@
 import { prisma } from "../../lib/prisma";
 import { ApiError } from "../../lib/apiError";
 import { sendSetupLink } from "../auth/auth.service";
+import { getStorage } from "../../lib/storage";
 
 export async function listEmployees(params: { search?: string; status?: "ACTIVE" | "INACTIVE"; departmentId?: string }) {
   const employees = await prisma.user.findMany({
@@ -34,16 +35,23 @@ export async function listEmployees(params: { search?: string; status?: "ACTIVE"
   return employees.map(({ passwordHash, ...rest }) => ({ ...rest, hasSetPassword: !!passwordHash }));
 }
 
-export async function createEmployee(input: { name: string; email: string; departmentId?: string; role?: "ADMIN" | "EMPLOYEE" }) {
-  const existing = await prisma.user.findUnique({ where: { email: input.email.toLowerCase() } });
+// This module only ever manages EMPLOYEE accounts. Admin accounts are
+// created and managed exclusively by the master admin via /api/admins —
+// otherwise an admin with MANAGE_EMPLOYEES could mint new admins, or
+// rename/deactivate/delete the master admin.
+export async function createEmployee(input: { name: string; email: string; departmentId?: string }) {
+  const email = input.email.toLowerCase();
+  const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
+    if (existing.role !== "EMPLOYEE") {
+      throw ApiError.conflict("This email belongs to an admin account");
+    }
     if (existing.isDeleted) {
       const restored = await prisma.user.update({
         where: { id: existing.id },
         data: {
           name: input.name,
-          departmentId: input.departmentId,
-          role: input.role ?? "EMPLOYEE",
+          departmentId: input.departmentId ?? null,
           status: "ACTIVE",
           isDeleted: false,
           passwordHash: null,
@@ -55,12 +63,7 @@ export async function createEmployee(input: { name: string; email: string; depar
     if (!existing.passwordHash) {
       const updated = await prisma.user.update({
         where: { id: existing.id },
-        data: {
-          name: input.name,
-          departmentId: input.departmentId,
-          role: input.role ?? existing.role,
-          status: "ACTIVE",
-        },
+        data: { name: input.name, departmentId: input.departmentId ?? existing.departmentId, status: "ACTIVE" },
       });
       await sendSetupLink(updated.id);
       return updated;
@@ -71,15 +74,13 @@ export async function createEmployee(input: { name: string; email: string; depar
   const user = await prisma.user.create({
     data: {
       name: input.name,
-      email: input.email.toLowerCase(),
+      email,
       departmentId: input.departmentId,
-      role: input.role ?? "EMPLOYEE",
+      role: "EMPLOYEE",
       status: "ACTIVE",
     },
   });
 
-  // Fire the setup email — deliberately not awaited-and-swallowed: if this
-  // fails, the caller should know so they can resend from the admin UI.
   await sendSetupLink(user.id);
 
   return user;
@@ -102,6 +103,28 @@ export async function softDeleteEmployee(id: string) {
   return prisma.user.update({ where: { id }, data: { isDeleted: true, status: "INACTIVE" } });
 }
 
+/**
+ * Permanently removes an employee and everything tied to them (progress,
+ * submissions, assignments, sessions). Activity log rows are kept with the
+ * user reference nulled, so the audit trail survives. Uploaded submission
+ * files are removed from storage best-effort.
+ */
+export async function permanentlyDeleteEmployee(id: string) {
+  const user = await prisma.user.findFirst({ where: { id, role: "EMPLOYEE" } });
+  if (!user) throw ApiError.notFound("Employee not found");
+
+  const submissions = await prisma.lessonSubmission.findMany({
+    where: { employeeId: id, fileKey: { not: null } },
+    select: { fileKey: true },
+  });
+
+  await prisma.user.delete({ where: { id } });
+
+  const storage = getStorage();
+  await Promise.all(submissions.map((s) => storage.remove(s.fileKey!)));
+  return user;
+}
+
 export async function resendSetupLink(id: string) {
   const user = await getEmployeeOr404(id);
   if (user.passwordHash) throw ApiError.badRequest("This account has already been set up.");
@@ -109,7 +132,7 @@ export async function resendSetupLink(id: string) {
 }
 
 async function getEmployeeOr404(id: string) {
-  const user = await prisma.user.findFirst({ where: { id, isDeleted: false } });
+  const user = await prisma.user.findFirst({ where: { id, isDeleted: false, role: "EMPLOYEE" } });
   if (!user) throw ApiError.notFound("Employee not found");
   return user;
 }

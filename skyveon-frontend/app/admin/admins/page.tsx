@@ -39,9 +39,14 @@ export default function AdminsPage() {
 
   async function load() {
     setLoading(true);
-    const body = await api.get("/api/admins");
-    setAdmins(body.admins);
-    setLoading(false);
+    try {
+      const body = await api.get("/api/admins");
+      setAdmins(body.admins);
+    } catch {
+      window.alert("Couldn't load admins — refresh to try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {

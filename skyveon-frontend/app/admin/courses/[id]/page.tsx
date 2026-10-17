@@ -39,6 +39,16 @@ interface NewLessonState {
   assignmentPrompt: string;
 }
 
+// Mirrors the backend's lib/lessonFiles.ts — the server enforces it, this
+// just keeps the file picker from offering the wrong kind of file.
+const ACCEPT_BY_TYPE: Partial<Record<LessonType, string>> = {
+  VIDEO: ".mp4,.m4v,.mov,.webm,video/*",
+  PDF: ".pdf,application/pdf",
+  PPT: ".ppt,.pptx,.odp,.key",
+  DOC: ".doc,.docx,.odt,.rtf,.txt",
+  IMAGE: ".jpg,.jpeg,.png,.gif,.webp,image/*",
+};
+
 const EMPTY_NEW_LESSON: NewLessonState = { title: "", type: "VIDEO", linkUrl: "", assignmentPrompt: "" };
 
 // Module-scope, not defined inside CourseDetailPage: these must keep a
@@ -303,6 +313,7 @@ function LessonRow({
             <label className="cursor-pointer">
               <input
                 type="file"
+                accept={ACCEPT_BY_TYPE[lesson.type]}
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -379,11 +390,18 @@ function LessonRow({
   );
 }
 
+function sortedModulesOf(course: Course) {
+  return [...course.modules].sort((a, b) => a.order - b.order);
+}
+
 export default function CourseDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [course, setCourse] = useState<Course | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Errors from one-click actions (delete, reorder, rename…) — shown in a
+  // banner, since they don't belong to any open form.
+  const [actionError, setActionError] = useState<string | null>(null);
   // Edit-course panel
   const [editPanelOpen, setEditPanelOpen] = useState(false);
   const [editForm, setEditForm] = useState({ title: "", description: "", department: "", imageUrl: "" });
@@ -411,6 +429,17 @@ export default function CourseDetailPage() {
     const body = await api.get(`/api/courses/${params.id}`);
     setCourse(body.course);
     return body.course as Course;
+  }
+
+  /** Runs a one-click action, surfacing any failure in the banner instead of failing silently. */
+  async function run(action: () => Promise<unknown>, fallback: string) {
+    setActionError(null);
+    try {
+      await action();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : fallback);
+      load().catch(() => {});
+    }
   }
 
   useEffect(() => {
@@ -542,7 +571,7 @@ export default function CourseDetailPage() {
         } else {
           ungrouped = reordered;
         }
-        await flattenAndPersistOrder({ modules: course.modules, lessonsByModule, ungrouped });
+        await flattenAndPersistOrder({ modules: sortedModulesOf(course), lessonsByModule, ungrouped });
       }
 
       setAddTarget(null);
@@ -554,8 +583,10 @@ export default function CourseDetailPage() {
 
   async function removeLesson(lessonId: string) {
     if (!window.confirm("Remove this lesson? It will be hidden but progress history is kept.")) return;
-    await api.delete(`/api/courses/lessons/${lessonId}`);
-    await load();
+    await run(async () => {
+      await api.delete(`/api/courses/lessons/${lessonId}`);
+      await load();
+    }, "Couldn't remove the lesson.");
   }
 
   async function moveLesson(lesson: Lesson, dir: -1 | 1) {
@@ -575,27 +606,32 @@ export default function CourseDetailPage() {
     } else {
       ungrouped = reordered;
     }
-    await flattenAndPersistOrder({ modules: course.modules, lessonsByModule, ungrouped });
+    await run(
+      () => flattenAndPersistOrder({ modules: sortedModulesOf(course), lessonsByModule, ungrouped }),
+      "Couldn't reorder lessons."
+    );
   }
 
   async function uploadFile(lessonId: string, file: File) {
     setUploadingLessonId(lessonId);
-    setError(null);
+    setActionError(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
       await api.upload(`/api/courses/lessons/${lessonId}/upload`, formData);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Upload failed — try again.");
+      setActionError(err instanceof ApiError ? err.message : "Upload failed — try again.");
     } finally {
       setUploadingLessonId(null);
     }
   }
 
   async function retryConversion(lessonId: string) {
-    await api.post(`/api/courses/lessons/${lessonId}/retry-conversion`);
-    await load();
+    await run(async () => {
+      await api.post(`/api/courses/lessons/${lessonId}/retry-conversion`);
+      await load();
+    }, "Couldn't restart the conversion.");
   }
 
   function formatDuration(seconds: number | null | undefined) {
@@ -618,13 +654,15 @@ export default function CourseDetailPage() {
       ? parseInt(durationInput.trim(), 10)
       : null;
     if (!seconds || seconds <= 0) {
-      setError("Enter a duration as minutes:seconds (e.g. 4:30) or total seconds.");
+      setActionError("Enter a duration as minutes:seconds (e.g. 4:30) or total seconds.");
       return;
     }
     setError(null);
-    await api.patch(`/api/courses/lessons/${lessonId}`, { durationSeconds: seconds });
-    setEditingDurationId(null);
-    await load();
+    await run(async () => {
+      await api.patch(`/api/courses/lessons/${lessonId}`, { durationSeconds: seconds });
+      setEditingDurationId(null);
+      await load();
+    }, "Couldn't save the duration.");
   }
 
   function startEditTitle(lesson: Lesson) {
@@ -635,13 +673,15 @@ export default function CourseDetailPage() {
   async function saveTitle(lessonId: string) {
     const title = titleInput.trim();
     if (!title) {
-      setError("Lesson title can't be empty.");
+      setActionError("Lesson title can't be empty.");
       return;
     }
     setError(null);
-    await api.patch(`/api/courses/lessons/${lessonId}`, { title });
-    setEditingTitleId(null);
-    await load();
+    await run(async () => {
+      await api.patch(`/api/courses/lessons/${lessonId}`, { title });
+      setEditingTitleId(null);
+      await load();
+    }, "Couldn't rename the lesson.");
   }
 
   async function toggleSubmissions(lessonId: string) {
@@ -649,14 +689,18 @@ export default function CourseDetailPage() {
       setExpandedSubmissions(null);
       return;
     }
-    const body = await api.get(`/api/courses/lessons/${lessonId}/submissions`);
-    setSubmissions(body.submissions);
-    setExpandedSubmissions(lessonId);
+    await run(async () => {
+      const body = await api.get(`/api/courses/lessons/${lessonId}/submissions`);
+      setSubmissions(body.submissions);
+      setExpandedSubmissions(lessonId);
+    }, "Couldn't load submissions.");
   }
 
   async function reviewSubmission(submissionId: string, status: "APPROVED" | "REJECTED") {
-    const body = await api.patch(`/api/courses/submissions/${submissionId}/review`, { status });
-    setSubmissions((prev) => prev.map((s) => (s.id === submissionId ? body.submission : s)));
+    await run(async () => {
+      const body = await api.patch(`/api/courses/submissions/${submissionId}/review`, { status });
+      setSubmissions((prev) => prev.map((s) => (s.id === submissionId ? body.submission : s)));
+    }, "Couldn't save the review.");
   }
 
   async function downloadSubmissionFile(submission: LessonSubmission) {
@@ -692,9 +736,11 @@ export default function CourseDetailPage() {
   async function saveModuleTitle(moduleId: string) {
     const title = moduleTitleInput.trim();
     if (!title) return;
-    await api.patch(`/api/courses/modules/${moduleId}`, { title });
-    setEditingModuleId(null);
-    await load();
+    await run(async () => {
+      await api.patch(`/api/courses/modules/${moduleId}`, { title });
+      setEditingModuleId(null);
+      await load();
+    }, "Couldn't rename the module.");
   }
 
   async function moveModule(mod: Module, dir: -1 | 1) {
@@ -704,14 +750,18 @@ export default function CourseDetailPage() {
     const j = i + dir;
     if (j < 0 || j >= mods.length) return;
     [mods[i], mods[j]] = [mods[j], mods[i]];
-    await api.patch(`/api/courses/${params.id}/modules/reorder`, { moduleIds: mods.map((m) => m.id) });
-    await load();
+    await run(async () => {
+      await api.patch(`/api/courses/${params.id}/modules/reorder`, { moduleIds: mods.map((m) => m.id) });
+      await load();
+    }, "Couldn't reorder modules.");
   }
 
   async function removeModule(moduleId: string) {
     if (!window.confirm("Remove this module? Its lessons stay in the course, just ungrouped.")) return;
-    await api.delete(`/api/courses/modules/${moduleId}`);
-    await load();
+    await run(async () => {
+      await api.delete(`/api/courses/modules/${moduleId}`);
+      await load();
+    }, "Couldn't remove the module.");
   }
 
   async function deleteCourse() {
@@ -722,8 +772,10 @@ export default function CourseDetailPage() {
       )
     )
       return;
-    await api.delete(`/api/courses/${course.id}`);
-    router.push("/admin/courses");
+    await run(async () => {
+      await api.delete(`/api/courses/${course.id}`);
+      router.push("/admin/courses");
+    }, "Couldn't delete the course.");
   }
 
   if (error && !course) {
@@ -755,6 +807,15 @@ export default function CourseDetailPage() {
           </div>
         }
       />
+
+      {actionError && (
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-crimson/20 bg-crimson/5 px-4 py-2.5">
+          <p className="text-sm text-crimson">{actionError}</p>
+          <button onClick={() => setActionError(null)} className="text-crimson/70 hover:text-crimson" aria-label="Dismiss">
+            <XIcon size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Course cover image */}
       {course.imageUrl && (

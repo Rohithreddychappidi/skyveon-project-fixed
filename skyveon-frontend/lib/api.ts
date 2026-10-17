@@ -73,26 +73,64 @@ async function parseResponse(res: Response) {
   return body;
 }
 
-export async function refreshAccessToken(): Promise<{ accessToken: string } | null> {
+// Remembers (per browser) that a session exists, so public pages don't fire
+// a refresh request that can only 401 for visitors who never signed in.
+// The refresh cookie itself is httpOnly and scoped to the API origin, so
+// the frontend can't check for it directly.
+const SESSION_HINT_KEY = "skyveon-has-session";
+
+export function setSessionHint(on: boolean) {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
-      method: "POST",
-      credentials: "include",
-    });
-    if (!res.ok) return null;
-    const body = await res.json();
-    setAccessToken(body.accessToken);
-    return body;
+    if (on) window.localStorage.setItem(SESSION_HINT_KEY, "1");
+    else window.localStorage.removeItem(SESSION_HINT_KEY);
   } catch {
-    return null;
+    // storage unavailable (private mode) — refresh will just always be tried
   }
 }
 
+export function hadSession() {
+  try {
+    return window.localStorage.getItem(SESSION_HINT_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+
+// Refresh tokens rotate on every use, so two refreshes racing with the same
+// cookie used to end with one of them rejected — and the app logging the
+// user out. Every caller now shares the one in-flight refresh instead.
+let refreshInFlight: Promise<{ accessToken: string } | null> | null = null;
+
+export function refreshAccessToken(): Promise<{ accessToken: string } | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+          method: "POST",
+          credentials: "include",
+        });
+        if (!res.ok) return null;
+        const body = await res.json();
+        setAccessToken(body.accessToken);
+        return body;
+      } catch {
+        return null;
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+  }
+  return refreshInFlight;
+}
+
 export async function apiFetch(path: string, options: RequestOptions = {}) {
+  const tokenUsed = accessToken;
   let res = await rawFetch(path, options);
 
   if (res.status === 401 && !options.skipAuthRetry && !path.startsWith("/api/auth/")) {
-    const refreshed = await refreshAccessToken();
+    // If another request already refreshed while this one was in flight,
+    // just retry with the new token rather than refreshing again.
+    const refreshed = accessToken && accessToken !== tokenUsed ? { accessToken } : await refreshAccessToken();
     if (refreshed) {
       res = await rawFetch(path, options);
     } else {
@@ -102,6 +140,11 @@ export async function apiFetch(path: string, options: RequestOptions = {}) {
   }
 
   return parseResponse(res);
+}
+
+/** Absolute URL for an API path (e.g. a signed lesson-file link from /api/files/:id/link). */
+export function apiUrl(path: string) {
+  return `${API_BASE_URL}${path}`;
 }
 
 /**

@@ -6,13 +6,14 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
-import type { Assignment, Course, Department, Employee, AssignmentTargetType } from "@/lib/api-types";
+import type { Assignment, CourseOption, Department, EmployeeOption, AssignmentTargetType } from "@/lib/api-types";
 import { Plus, X, User, Building2, Trash2 } from "lucide-react";
 
 export default function AssignmentsPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [courses, setCourses] = useState<CourseOption[]>([]);
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -27,17 +28,25 @@ export default function AssignmentsPage() {
 
   async function load() {
     setLoading(true);
-    const [a, c, e, d] = await Promise.all([
-      api.get("/api/assignments"),
-      api.get("/api/courses"),
-      api.get("/api/users"),
-      api.get("/api/departments"),
-    ]);
-    setAssignments(a.assignments);
-    setCourses(c.courses);
-    setEmployees(e.employees);
-    setDepartments(d.departments);
-    setLoading(false);
+    setLoadError(null);
+    try {
+      // Lookup endpoints, not /api/courses + /api/users: those need
+      // MANAGE_COURSES / MANAGE_EMPLOYEES, which an assignments-only admin lacks.
+      const [a, c, e, d] = await Promise.all([
+        api.get("/api/assignments"),
+        api.get("/api/lookups/courses"),
+        api.get("/api/lookups/employees"),
+        api.get("/api/departments"),
+      ]);
+      setAssignments(a.assignments);
+      setCourses(c.courses);
+      setEmployees(e.employees);
+      setDepartments(d.departments);
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.message : "Couldn't load assignments — refresh to try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -68,7 +77,12 @@ export default function AssignmentsPage() {
 
   async function unassign(id: string) {
     if (!window.confirm("Unassign this course?")) return;
-    await api.delete(`/api/assignments/${id}`);
+    try {
+      await api.delete(`/api/assignments/${id}`);
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.message : "Couldn't unassign — try again.");
+      return;
+    }
     await load();
   }
 
@@ -83,6 +97,8 @@ export default function AssignmentsPage() {
           </Button>
         }
       />
+
+      {loadError && <p className="mb-4 text-sm text-crimson">{loadError}</p>}
 
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">

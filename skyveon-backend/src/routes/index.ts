@@ -8,6 +8,7 @@ import { filesRouter } from "../modules/files/files.routes";
 import { activityRouter } from "../modules/activity/activity.routes";
 import { cmsRouter } from "../modules/cms/cms.routes";
 import { adminsRouter } from "../modules/admins/admins.routes";
+import { lookupsRouter } from "../modules/lookups/lookups.routes";
 
 export const apiRouter = Router();
 
@@ -23,3 +24,4 @@ apiRouter.use("/files", filesRouter);
 apiRouter.use("/activity", activityRouter);
 apiRouter.use("/cms", cmsRouter);
 apiRouter.use("/admins", adminsRouter);
+apiRouter.use("/lookups", lookupsRouter);

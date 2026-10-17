@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Building2 } from "lucide-react";
 import type { HomeCmsContent, ImagePosition } from "@/lib/cms-types";
-import { resolveImageUrl } from "@/lib/api";
+import { CmsImage } from "./cms-image";
 
 function positionToCSS(pos: ImagePosition | undefined): string {
   if (!pos) return "center";
@@ -33,11 +33,11 @@ export function About({ about }: { about: HomeCmsContent["about"] }) {
         {/* Left: photo, clay-framed */}
         <div className="clay relative overflow-hidden rounded-[32px] h-72 sm:h-96 order-1">
           {activeUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={resolveImageUrl(activeUrl)}
+            <CmsImage
+              src={activeUrl}
               alt="Skyveon team"
-              className="absolute inset-0 h-full w-full object-cover"
+              sizes="(min-width: 768px) 50vw, 100vw"
+              className="object-cover"
               style={{ objectPosition }}
             />
           ) : (

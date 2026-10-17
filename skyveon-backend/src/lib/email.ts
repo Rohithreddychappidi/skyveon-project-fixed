@@ -1,5 +1,6 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { env } from "../config/env";
+import { escapeHtml } from "./html";
 
 let transporter: Transporter | null = null;
 let usingConsoleFallback = false;
@@ -47,7 +48,7 @@ export async function sendEmail(opts: { to: string; subject: string; html: strin
 export function setupPasswordEmail(params: { name: string; link: string }) {
   return {
     subject: "Set up your Skyveon Learning Hub account",
-    html: `<p>Hi ${params.name},</p><p>An account has been created for you on Skyveon Learning Hub. Click below to set your password and get started:</p><p><a href="${params.link}">${params.link}</a></p><p>This link expires in 48 hours.</p>`,
+    html: `<p>Hi ${escapeHtml(params.name)},</p><p>An account has been created for you on Skyveon Learning Hub. Click below to set your password and get started:</p><p><a href="${escapeHtml(params.link)}">${escapeHtml(params.link)}</a></p><p>This link expires in 48 hours.</p>`,
     text: `Hi ${params.name}, set up your Skyveon Learning Hub account: ${params.link} (expires in 48 hours)`,
   };
 }
@@ -55,7 +56,7 @@ export function setupPasswordEmail(params: { name: string; link: string }) {
 export function resetPasswordEmail(params: { name: string; link: string }) {
   return {
     subject: "Reset your Skyveon Learning Hub password",
-    html: `<p>Hi ${params.name},</p><p>We received a request to reset your password. Click below to choose a new one:</p><p><a href="${params.link}">${params.link}</a></p><p>If you didn't request this, you can safely ignore this email. This link expires in 1 hour.</p>`,
+    html: `<p>Hi ${escapeHtml(params.name)},</p><p>We received a request to reset your password. Click below to choose a new one:</p><p><a href="${escapeHtml(params.link)}">${escapeHtml(params.link)}</a></p><p>If you didn't request this, you can safely ignore this email. This link expires in 1 hour.</p>`,
     text: `Reset your Skyveon Learning Hub password: ${params.link} (expires in 1 hour)`,
   };
 }

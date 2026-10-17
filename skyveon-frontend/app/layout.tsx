@@ -8,11 +8,10 @@ import "@fontsource/inter/600.css";
 import "@fontsource/space-mono/400.css";
 import "@fontsource/space-mono/700.css";
 import "./globals.css";
-import { CmsProvider } from "@/components/cms/cms-context";
 import { AuthProvider } from "@/components/auth/auth-context";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://skyveon.com"),
+  metadataBase: new URL("https://www.skyveon.com"),
   title: {
     default: "Skyveon Learning Hub",
     template: "%s | Skyveon Learning Hub",
@@ -24,7 +23,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Skyveon Learning Hub",
     description: "Internal training platform for Skyveon",
-    url: "https://skyveon.com",
+    url: "https://www.skyveon.com",
     siteName: "Skyveon Learning Hub",
     locale: "en_US",
     type: "website",
@@ -45,7 +44,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="font-body antialiased bg-white text-ink">
         <AuthProvider>
-          <CmsProvider>{children}</CmsProvider>
+          {children}
         </AuthProvider>
       </body>
     </html>

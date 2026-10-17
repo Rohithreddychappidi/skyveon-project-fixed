@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { emailQueue } from "./queue";
 import { env } from "../config/env";
+import { escapeHtml } from "./html";
 import type { Course, Lesson, User } from "@prisma/client";
 
 function baseTemplate(bodyHtml: string) {
@@ -11,7 +12,7 @@ function baseTemplate(bodyHtml: string) {
 export async function enqueueCourseAssignedEmail(employee: Pick<User, "id" | "name" | "email">, course: Course) {
   const link = `${env.APP_URL}/employee`;
   const html = baseTemplate(
-    `<p>Hi ${employee.name},</p><p>A new course has been assigned to you: <strong>${course.title}</strong>.</p><p><a href="${link}">Open Skyveon Learning Hub</a> to get started.</p>`
+    `<p>Hi ${escapeHtml(employee.name)},</p><p>A new course has been assigned to you: <strong>${escapeHtml(course.title)}</strong>.</p><p><a href="${link}">Open Skyveon Learning Hub</a> to get started.</p>`
   );
   await emailQueue.add(`course-assigned-${employee.id}-${course.id}`, {
     to: employee.email,
@@ -38,8 +39,8 @@ export async function enqueueAssignmentSubmittedEmail(
   const link = `${env.APP_URL}/admin/courses/${lesson.courseId}`;
   for (const recipient of recipients.values()) {
     const html = baseTemplate(
-      `<p>Hi ${recipient.name},</p><p><strong>${employee.name}</strong> (${employee.email}) submitted the assignment <strong>${lesson.title}</strong>${
-        course ? ` in <strong>${course.title}</strong>` : ""
+      `<p>Hi ${escapeHtml(recipient.name)},</p><p><strong>${escapeHtml(employee.name)}</strong> (${escapeHtml(employee.email)}) submitted the assignment <strong>${escapeHtml(lesson.title)}</strong>${
+        course ? ` in <strong>${escapeHtml(course.title)}</strong>` : ""
       }.</p><p><a href="${link}">Review it</a> in the admin portal.</p>`
     );
     await emailQueue.add(`assignment-submitted-${lesson.id}-${employee.id}`, {

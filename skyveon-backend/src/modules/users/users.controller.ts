@@ -19,7 +19,6 @@ const createSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
   departmentId: z.string().optional(),
-  role: z.enum(["ADMIN", "EMPLOYEE"]).optional(),
 });
 
 export async function create(req: Request, res: Response) {
@@ -56,6 +55,16 @@ export async function setStatus(req: Request, res: Response) {
 export async function remove(req: Request, res: Response) {
   await usersService.softDeleteEmployee(req.params.id);
   await logActivity({ userId: req.user!.id, action: "user.delete", metadata: { targetUserId: req.params.id } });
+  res.status(204).send();
+}
+
+export async function removePermanently(req: Request, res: Response) {
+  const user = await usersService.permanentlyDeleteEmployee(req.params.id);
+  await logActivity({
+    userId: req.user!.id,
+    action: "user.delete_permanent",
+    metadata: { targetEmail: user.email, targetName: user.name },
+  });
   res.status(204).send();
 }
 

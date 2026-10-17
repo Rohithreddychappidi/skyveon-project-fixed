@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { asyncHandler } from "../../lib/asyncHandler";
 import { requireAuth, requireRole, requirePermission } from "../../middleware/auth";
-import { upload } from "../../middleware/upload";
+import { upload, imageUpload, cleanupTempUpload } from "../../middleware/upload";
 import * as controller from "./courses.controller";
 
 export const coursesRouter = Router();
@@ -21,7 +21,7 @@ coursesRouter.use(requireRole("ADMIN"), requirePermission("MANAGE_COURSES"));
 
 coursesRouter.post(
   "/upload-cover-image",
-  upload.single("file"),
+  imageUpload.single("file"),
   asyncHandler(controller.uploadCoverImage)
 );
 
@@ -37,6 +37,7 @@ coursesRouter.patch("/lessons/:lessonId", asyncHandler(controller.updateLesson))
 coursesRouter.delete("/lessons/:lessonId", asyncHandler(controller.removeLesson));
 coursesRouter.post(
   "/lessons/:lessonId/upload",
+  cleanupTempUpload,
   upload.single("file"),
   asyncHandler(controller.uploadLessonContent)
 );

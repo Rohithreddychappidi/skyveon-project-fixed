@@ -14,9 +14,13 @@ import { BookOpen, Layers, ImageIcon } from "lucide-react";
 export default function EmployeeDashboard() {
   const { user } = useAuth();
   const [courses, setCourses] = useState<Course[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get("/api/courses/mine").then((body) => setCourses(body.courses));
+    api
+      .get("/api/courses/mine")
+      .then((body) => setCourses(body.courses))
+      .catch(() => setError("Couldn't load your courses — refresh to try again."));
   }, []);
 
   return (
@@ -73,7 +77,8 @@ export default function EmployeeDashboard() {
             No courses assigned to you yet — check back soon.
           </p>
         )}
-        {courses === null && <p className="text-sm text-slate">Loading…</p>}
+        {courses === null && !error && <p className="text-sm text-slate">Loading…</p>}
+        {error && <p className="text-sm text-crimson col-span-full">{error}</p>}
       </div>
     </div>
   );

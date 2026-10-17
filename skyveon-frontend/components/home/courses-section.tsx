@@ -1,27 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { LessonTypeIcon } from "@/components/ui/lesson-icon";
-import { api, resolveImageUrl } from "@/lib/api";
+import { CmsImage } from "./cms-image";
 import type { HomeCmsContent } from "@/lib/cms-types";
 import type { PublicCourse } from "@/lib/api-types";
 import { BookOpen, Layers, ImageIcon } from "lucide-react";
 
 export function CoursesSection({
   coursesSection,
+  courses,
 }: {
   coursesSection: HomeCmsContent["coursesSection"];
+  // Fetched on the server with the rest of the page (see lib/home-data.ts).
+  courses: PublicCourse[] | null;
 }) {
-  const [courses, setCourses] = useState<PublicCourse[] | null>(null);
-
-  useEffect(() => {
-    api
-      .get("/api/courses/public")
-      .then((body) => setCourses(body.courses))
-      .catch(() => setCourses([]));
-  }, []);
-
   const ordered = !courses
     ? []
     : coursesSection.featuredCourseIds.length
@@ -54,12 +47,14 @@ export function CoursesSection({
                 <div className="clay h-full rounded-[28px] overflow-hidden transition-transform duration-300 group-hover:-translate-y-1.5">
                   {/* Course cover image */}
                   {course.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={resolveImageUrl(course.imageUrl)}
-                      alt={course.title}
-                      className="w-full h-28 object-cover"
-                    />
+                    <div className="relative w-full h-28">
+                      <CmsImage
+                        src={course.imageUrl}
+                        alt={course.title}
+                        sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+                        className="object-cover"
+                      />
+                    </div>
                   ) : (
                     <div className="w-full h-20 bg-gradient-to-br from-indigo/10 to-violet/5 flex items-center justify-center">
                       <ImageIcon size={20} className="text-indigo/30 dark:text-white/20" />

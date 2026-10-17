@@ -19,11 +19,19 @@ export type ProtectionReason = "tab-hidden" | "devtools" | null;
  *    actual tab switch or minimize, so it doesn't have that problem, but
  *    it also can't detect e.g. a second monitor pointed at a phone camera.
  *
- * 2. Dev-tools-open: the classic outer/inner window-size-delta heuristic.
- *    It has real false positives (any docked devtools-like browser chrome,
- *    certain zoom levels, some OS window managers) and real false
- *    negatives (undocked devtools on a second monitor, most non-Chromium
- *    browsers). It's a nuisance-level speed bump, not a control.
+ * 2. Dev-tools-open: a window-size heuristic. Docked dev tools shrink the
+ *    page (innerWidth/innerHeight) while the browser window itself
+ *    (outerWidth/outerHeight) stays put. The naive "outer minus inner is
+ *    big" check flagged anyone with a permanent sidebar, bookmarks bar,
+ *    unusual zoom or a mobile browser's toolbars, so this version:
+ *      - measures that gap at page load and only reacts to it GROWING by
+ *        a large amount afterwards (whatever chrome was there from the
+ *        start is ignored),
+ *      - re-baselines on zoom changes and whole-window resizes,
+ *      - needs the change to persist across two polls, and
+ *      - is off on touch-only devices (no docked dev tools there).
+ *    Still a deterrent, not a control: undocked dev tools aren't detected,
+ *    and opening a browser side panel mid-lesson can still trigger it.
  */
 export function useContentProtection() {
   const [reason, setReason] = useState<ProtectionReason>(null);
@@ -35,22 +43,15 @@ export function useContentProtection() {
     document.addEventListener("visibilitychange", handleVisibility);
 
     let devtoolsPollId: ReturnType<typeof setInterval> | undefined;
-    if (ENABLE_DEVTOOLS_DETECTION) {
-      const THRESHOLD = 160;
-      let wasOpen = false;
+    const touchOnly = window.matchMedia("(pointer: coarse)").matches && !window.matchMedia("(any-pointer: fine)").matches;
+    if (ENABLE_DEVTOOLS_DETECTION && !touchOnly) {
+      const detector = createDevtoolsDetector(measureWindow());
       devtoolsPollId = setInterval(() => {
-        const widthDelta = window.outerWidth - window.innerWidth;
-        const heightDelta = window.outerHeight - window.innerHeight;
-        const isOpen = widthDelta > THRESHOLD || heightDelta > THRESHOLD;
-        if (isOpen !== wasOpen) {
-          wasOpen = isOpen;
-          // Don't clobber a concurrent tab-hidden state, and don't clear a
-          // devtools flag just because the tab regained visibility.
-          setReason((prev) => {
-            if (isOpen) return "devtools";
-            return prev === "devtools" ? null : prev;
-          });
-        }
+        const change = detector(measureWindow());
+        if (change === null) return;
+        // Don't clobber a concurrent tab-hidden state, and don't clear a
+        // devtools flag just because the tab regained visibility.
+        setReason((prev) => (change === "opened" ? "devtools" : prev === "devtools" ? null : prev));
       }, 1000);
     }
 
@@ -61,4 +62,58 @@ export function useContentProtection() {
   }, []);
 
   return { blurred: reason !== null, reason };
+}
+
+export interface WindowMetrics {
+  dw: number; // outerWidth - innerWidth
+  dh: number; // outerHeight - innerHeight
+  ow: number; // outerWidth
+  oh: number; // outerHeight
+  dpr: number; // devicePixelRatio (changes with zoom)
+}
+
+function measureWindow(): WindowMetrics {
+  return {
+    dw: window.outerWidth - window.innerWidth,
+    dh: window.outerHeight - window.innerHeight,
+    ow: window.outerWidth,
+    oh: window.outerHeight,
+    dpr: window.devicePixelRatio,
+  };
+}
+
+const GROWTH_THRESHOLD = 160;
+
+/**
+ * Pure decision logic for the dev-tools heuristic (see the hook's comment).
+ * Feed it a measurement each poll; it returns "opened"/"closed" when the
+ * state flips, null otherwise.
+ */
+export function createDevtoolsDetector(initial: WindowMetrics) {
+  let baseline = initial;
+  let suspectPolls = 0;
+  let open = false;
+
+  return (now: WindowMetrics): "opened" | "closed" | null => {
+    // Zoom or a resize of the whole browser window: a new normal, not dev tools.
+    if (now.dpr !== baseline.dpr || Math.abs(now.ow - baseline.ow) > 4 || Math.abs(now.oh - baseline.oh) > 4) {
+      if (!open) {
+        baseline = now;
+        suspectPolls = 0;
+      }
+      return null;
+    }
+    const grew = now.dw - baseline.dw > GROWTH_THRESHOLD || now.dh - baseline.dh > GROWTH_THRESHOLD;
+    suspectPolls = grew ? suspectPolls + 1 : 0;
+    if (!open && suspectPolls >= 2) {
+      open = true;
+      return "opened";
+    }
+    if (open && !grew) {
+      open = false;
+      baseline = now;
+      return "closed";
+    }
+    return null;
+  };
 }

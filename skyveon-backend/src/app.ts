@@ -10,6 +10,10 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 export function createApp() {
   const app = express();
 
+  // Behind nginx: trust its X-Forwarded-* headers so req.ip is the real
+  // client (rate limiting) and req.protocol reflects https.
+  app.set("trust proxy", 1);
+
   app.use(
     helmet({
       // lesson content is served inline in <iframe>/<video>/<img> tags from

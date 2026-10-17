@@ -141,3 +141,18 @@ export interface ProgressTableRow {
   percent: number;
   status: CompletionStatus;
 }
+
+/** Slim course/employee entries from /api/lookups — for pickers and counts. */
+export interface CourseOption {
+  id: string;
+  title: string;
+  department: string;
+}
+
+export interface EmployeeOption {
+  id: string;
+  name: string;
+  email: string;
+  status: UserStatus;
+  departmentId: string | null;
+}

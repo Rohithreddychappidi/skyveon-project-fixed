@@ -3,7 +3,7 @@
 Express + Prisma backend for the internal training platform. Auth (with a
 master-admin/admin permission hierarchy), employee management, courses with
 gated assignment lessons, progress tracking, content protection (signed
-URLs, live + burned-in watermarking), background jobs, and audit logging.
+URLs, live PDF/image watermarking, viewer overlay on video), background jobs, and audit logging.
 
 ## Stack
 
@@ -22,8 +22,7 @@ URLs, live + burned-in watermarking), background jobs, and audit logging.
   expose an SMTP endpoint; logs to the console in local dev if no SMTP is
   configured
 - **LibreOffice (headless)** for Office → PDF conversion
-- **ffmpeg** for burning a real watermark into video frames (cached per
-  viewer — see below)
+- **ffprobe** (ships with ffmpeg) to read a video's duration on upload
 - **pdf-lib / sharp** for on-the-fly PDF/image watermarking
 
 ## 1. Prerequisites
@@ -35,14 +34,14 @@ URLs, live + burned-in watermarking), background jobs, and audit logging.
   sudo apt-get install libreoffice   # Ubuntu/Debian
   brew install --cask libreoffice    # macOS
   ```
-- ffmpeg, for burning watermarks into video lessons:
+- ffmpeg (for its `ffprobe`), to detect video durations on upload:
   ```bash
   sudo apt-get install ffmpeg        # Ubuntu/Debian
   brew install ffmpeg                # macOS
   ```
   Neither is required to boot the app — PPT/DOC lessons sit at
-  `conversionStatus: FAILED` without LibreOffice, and video just serves
-  unwatermarked (logged clearly) without ffmpeg. Both are easy to add later.
+  `conversionStatus: FAILED` without LibreOffice, and without ffprobe an
+  admin sets a video's duration by hand in the course builder.
 
 ## 2. Setup
 
@@ -64,22 +63,22 @@ Fill in `.env`:
 Create the tables and seed demo data:
 
 ```bash
-npx prisma migrate dev --name init
+npx prisma migrate deploy   # applies prisma/migrations
 npm run seed
 ```
 
-> **Upgrading from an earlier version of this backend?** This round added
-> `MASTER_ADMIN`/`AdminPermission`, the `ASSIGNMENT` lesson type, and the
-> `LessonSubmission` table. Run
-> `npx prisma migrate dev --name master_admin_and_assignments` to pick up
-> the schema changes — existing data is untouched, but note that anyone
-> previously seeded as a plain `ADMIN` won't have any `adminPermissions`
-> until you grant them (see section 4) or reseed.
->
-> **Since then:** `LessonSubmission` also gained optional `fileKey`/
-> `fileName`/`fileMime` columns (employees can now attach a file to an
-> assignment submission, not just text) — run
-> `npx prisma migrate dev --name submission_attachments` to pick that up too.
+Schema changes from now on go through Prisma Migrate: edit
+`schema.prisma`, run `npx prisma migrate dev --name <change>` locally, commit
+the generated folder under `prisma/migrations/`, and run
+`npx prisma migrate deploy` on the server as part of each deploy.
+
+> **Existing production database (one-time):** it was created before
+> migrations were tracked, so tell Prisma the baseline is already applied
+> instead of re-running it:
+> `npx prisma migrate resolve --applied 0_init`
+> (`npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma`
+> should print an empty diff first — if it doesn't, the live schema has
+> drifted and needs a look before baselining.)
 
 The seed script prints a **master admin**, **admin**, and **employee**
 login when it finishes.
@@ -101,7 +100,6 @@ src/lib/
   queue.ts                 BullMQ+Redis job runner (with inline fallback)
   notifications.ts         course-assigned / assignment-submitted emails
   watermark.ts              PDF/image live watermarking
-  videoWatermark.ts          ffmpeg video watermark burn-in
   lessonGating.ts            "assignment lessons lock what comes after"
   fileConversion.ts          Office -> PDF via LibreOffice
   jwt.ts / signedLink.ts / password.ts / email.ts / activityLog.ts
@@ -169,16 +167,26 @@ review doesn't get missed — see `src/lib/notifications.ts`.
   every employee's status drops back to `NOT_STARTED` so they go through
   the new content, rather than staying marked complete against content
   that no longer exists.
-- Employees never get a direct file path — only a **5-minute signed URL**
-  (`GET /api/files/:lessonId/link` → `GET /api/files/:lessonId/stream`).
-- **PDF/image**: watermarked **live, on every request** (viewer's name,
-  email, ID) — nothing pre-baked.
-- **Video**: watermarking is a real ffmpeg burn into the frames, not a
-  client-side overlay — but re-encoding a multi-minute video on every
-  single request would be far too slow, so the result is **cached per
-  (lesson, viewer) pair** and served instantly after the first view. If
-  ffmpeg isn't installed, this fails soft and serves the unwatermarked
-  video instead (logged) rather than blocking playback.
+- Employees never get a direct file path — only a **signed link**
+  (`GET /api/files/:lessonId/link` returns a relative `path` →
+  `GET /api/files/:lessonId/stream?token=…`). Links last 30 minutes for
+  documents and long enough to cover the whole video for video lessons
+  (3× its duration, 4–12 h); every stream request re-checks that the
+  viewer is still active, assigned, and past any assignment gate.
+- Uploads are checked against the lesson type (a PDF can't go into a VIDEO
+  lesson) and spooled to a temp file, then streamed to storage — a 2 GB
+  video never sits in memory.
+- **PDF/image**: watermarked **live** (viewer's name, email, ID, date) and
+  sent whole; the output is byte-identical for the same viewer and day so
+  PDF viewers never mix chunks from different renders. PPT/DOC are only
+  ever served as their converted PDF — never the original file.
+- **Video**: streamed straight from storage with HTTP range support, so
+  playback starts instantly and seeking only fetches the bytes needed. The
+  viewer's name/email is drawn as a **moving overlay** on the player
+  (`components/employee/video-watermark.tsx`). The earlier per-viewer
+  ffmpeg burn-in was removed: it re-encoded every video for every viewer,
+  which took minutes (or timed out) for the 1–5 h lectures. Old cached
+  copies under the `watermarked-video/` storage prefix can be deleted.
 - `Content-Disposition: inline` + `Cache-Control: no-store` deter casual
   downloads.
 - The frontend adds a few more **deterrent-level** (explicitly not hard
@@ -204,8 +212,13 @@ review doesn't get missed — see `src/lib/notifications.ts`.
 ## 8. Soft delete
 
 `isDeleted` on `User`, `Course`, `Lesson`, `Department`, and `Assignment`.
-Nothing is ever hard-deleted — deactivating/removing something just hides
-it from listings while keeping historical progress and audit records intact.
+Deactivating/removing something just hides it from listings while keeping
+historical progress and audit records intact.
+
+The one exception is **permanently deleting an employee**
+(`DELETE /api/users/:id/permanent`, master admin only): it removes the
+account with its progress, submissions (including uploaded files) and
+assignments. Activity-log rows stay, with the user reference cleared.
 
 ## 9. Migrating pieces later
 
@@ -220,6 +233,35 @@ it from listings while keeping historical progress and audit records intact.
   retries — no code changes, `src/lib/queue.ts` detects it at boot.
 - **Email:** point `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS` at SES's or
   SendGrid's SMTP credentials. No code changes.
+
+### Running behind nginx
+
+The API trusts one proxy hop (`app.set("trust proxy", 1)`) for the client
+IP (login rate limiting) and protocol. The `location` block proxying to
+Node should pass:
+
+```nginx
+proxy_set_header Host              $host;
+proxy_set_header X-Real-IP         $remote_addr;
+proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+client_max_body_size 2100m;        # lesson uploads up to MAX_UPLOAD_MB
+proxy_request_buffering off;       # stream uploads through instead of buffering them in nginx
+proxy_read_timeout 600s;           # large uploads to B2 can take a while
+```
+
+Without `X-Forwarded-For`, every request looks like it comes from nginx
+itself — rate limits are keyed by IP *and* email, so that degrades to
+per-email limiting rather than locking everyone out.
+
+## Tests
+
+```bash
+npm test
+```
+
+Unit tests plus an HTTP-level test of the file-streaming routes (local
+storage, stubbed database) — no real database or bucket needed.
 
 ## 10. API reference (quick index)
 
@@ -244,6 +286,7 @@ POST   /api/users                       (admin + MANAGE_EMPLOYEES)
 PATCH  /api/users/:id                   (admin + MANAGE_EMPLOYEES)
 PATCH  /api/users/:id/status            (admin + MANAGE_EMPLOYEES)
 DELETE /api/users/:id                   (admin + MANAGE_EMPLOYEES)
+DELETE /api/users/:id/permanent         (master admin)
 POST   /api/users/:id/resend-setup      (admin + MANAGE_EMPLOYEES)
 GET    /api/departments
 POST   /api/departments                 (admin + MANAGE_EMPLOYEES)
@@ -275,13 +318,16 @@ POST   /api/progress/:lessonId/confirm
 POST   /api/progress/:lessonId/submit-assignment
 GET    /api/progress/:lessonId/mine
 GET    /api/progress/course/:courseId/table            (admin + VIEW_PROGRESS)
+GET    /api/progress/overview                          (admin + VIEW_PROGRESS)
+GET    /api/lookups/courses             (admin + MANAGE_COURSES | MANAGE_ASSIGNMENTS | VIEW_PROGRESS)
+GET    /api/lookups/employees           (admin + MANAGE_EMPLOYEES | MANAGE_ASSIGNMENTS)
 
 GET    /api/files/:lessonId/link        (auth)
 GET    /api/files/:lessonId/stream?token=...  (signed link, no session needed)
-GET    /api/files/:lessonId/admin-download    (admin)
+GET    /api/files/:lessonId/admin-download    (admin + MANAGE_COURSES)
 GET    /api/courses/submissions/:submissionId/file      (admin — download an employee's attached file)
 
-GET    /api/activity                    (admin, audit log)
+GET    /api/activity                    (admin + MANAGE_EMPLOYEES | VIEW_PROGRESS)
 
 GET    /api/cms/home                    (public — home page content)
 PUT    /api/cms/home                    (admin + MANAGE_CMS)

@@ -38,3 +38,7 @@ export async function courseTable(req: Request, res: Response) {
   const table = await progressService.getCourseProgressTable(req.params.courseId);
   res.json(table);
 }
+
+export async function overview(_req: Request, res: Response) {
+  res.json(await progressService.getOverview());
+}

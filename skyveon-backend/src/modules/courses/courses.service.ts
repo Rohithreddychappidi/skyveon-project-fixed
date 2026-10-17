@@ -2,7 +2,9 @@ import { prisma } from "../../lib/prisma";
 import { ApiError } from "../../lib/apiError";
 import { getStorage, makeStorageKey } from "../../lib/storage";
 import { convertToPdf } from "../../lib/fileConversion";
-import type { LessonType, Course, Lesson } from "@prisma/client";
+import { sortLessonsForDisplay } from "../../lib/lessonOrder";
+import { assertFileMatchesLessonType, normalizeMime } from "../../lib/lessonFiles";
+import type { LessonType, Course, Lesson, Progress, LessonSubmission } from "@prisma/client";
 
 // --- Courses (admin) ---------------------------------------------------------
 
@@ -57,6 +59,7 @@ export async function softDeleteCourse(id: string) {
 
 export async function addLesson(courseId: string, input: { title: string; type: LessonType; linkUrl?: string; durationSeconds?: number; assignmentPrompt?: string; moduleId?: string | null; position?: number }) {
   await getCourseAdmin(courseId);
+  if (input.moduleId) await ensureModuleInCourse(input.moduleId, courseId);
 
   // If inserting at a position within a module (or ungrouped), compute the
   // correct order value by shifting existing lessons if needed.
@@ -103,11 +106,27 @@ export async function updateLesson(
   input: { title?: string; linkUrl?: string; durationSeconds?: number; assignmentPrompt?: string; moduleId?: string | null }
 ) {
   const lesson = await getLessonOr404(lessonId);
+  if (input.moduleId) await ensureModuleInCourse(input.moduleId, lesson.courseId);
   return prisma.lesson.update({ where: { id: lesson.id }, data: input });
+}
+
+async function ensureModuleInCourse(moduleId: string, courseId: string) {
+  const mod = await prisma.module.findFirst({ where: { id: moduleId, courseId, isDeleted: false } });
+  if (!mod) throw ApiError.badRequest("That module doesn't belong to this course.");
+}
+
+/** Reorder payloads must be exactly the course's own (non-deleted) ids — no strays from other courses. */
+function assertSameIdSet(given: string[], actual: string[], what: string) {
+  const givenSet = new Set(given);
+  if (givenSet.size !== given.length || given.length !== actual.length || !actual.every((id) => givenSet.has(id))) {
+    throw ApiError.badRequest(`The ${what} list doesn't match this course — reload and try again.`);
+  }
 }
 
 export async function reorderLessons(courseId: string, orderedLessonIds: string[]) {
   await getCourseAdmin(courseId);
+  const lessons = await prisma.lesson.findMany({ where: { courseId, isDeleted: false }, select: { id: true } });
+  assertSameIdSet(orderedLessonIds, lessons.map((l) => l.id), "lesson");
   await prisma.$transaction(
     orderedLessonIds.map((lessonId, index) =>
       prisma.lesson.update({ where: { id: lessonId }, data: { order: index } })
@@ -132,8 +151,10 @@ const OFFICE_TYPES: LessonType[] = ["PPT", "DOC"];
 
 export async function uploadLessonContent(lessonId: string, file: Express.Multer.File) {
   const lesson = await getLessonOr404(lessonId);
+  assertFileMatchesLessonType(lesson.type, file.originalname);
   const storage = getStorage();
   const key = makeStorageKey(file.originalname);
+  const mime = normalizeMime(lesson.type, file.originalname, file.mimetype);
   const isReplacement = !!lesson.fileKey;
 
   // The 90%-watched completion rule divides by durationSeconds — without
@@ -143,16 +164,16 @@ export async function uploadLessonContent(lessonId: string, file: Express.Multer
   let durationSeconds: number | undefined;
   if (lesson.type === "VIDEO") {
     const { getVideoDurationSeconds } = await import("../../lib/videoProbe");
-    durationSeconds = (await getVideoDurationSeconds(file.buffer)) ?? undefined;
+    durationSeconds = (await getVideoDurationSeconds(file.path)) ?? undefined;
   }
 
-  await storage.save(key, file.buffer);
+  await storage.saveFile(key, file.path, mime);
   await prisma.lesson.update({
     where: { id: lesson.id },
     data: {
       fileKey: key,
       fileName: file.originalname,
-      fileMime: file.mimetype,
+      fileMime: mime,
       conversionStatus: OFFICE_TYPES.includes(lesson.type) ? "PENDING" : "NOT_REQUIRED",
       convertedKey: null,
       conversionError: null,
@@ -259,9 +280,9 @@ async function attachProgressSummary(courses: (Course & { lessons: Lesson[] })[]
   });
   const progressByLesson = new Map(progress.map((p) => [p.lessonId, p]));
 
-  return courses.map((course) => {
-    const total = course.lessons.length;
-    const completed = course.lessons.filter((l) => progressByLesson.get(l.id)?.status === "COMPLETED").length;
+  return courses.map(({ lessons, createdById: _createdBy, ...course }) => {
+    const total = lessons.length;
+    const completed = lessons.filter((l) => progressByLesson.get(l.id)?.status === "COMPLETED").length;
     return {
       ...course,
       progress: { completedLessons: completed, totalLessons: total, percent: total ? Math.round((completed / total) * 100) : 0 },
@@ -299,24 +320,55 @@ export async function getCourseForEmployee(courseId: string, employeeId: string,
   const progressByLesson = new Map(progress.map((p) => [p.lessonId, p]));
   const submissionByLesson = new Map(submissions.map((s) => [s.lessonId, s]));
 
-  // A lesson is locked if some earlier ASSIGNMENT lesson hasn't been
-  // submitted yet — mirrors lib/lessonGating.ts so the UI can show a lock
-  // icon before the employee even tries to open it.
-  let blockingAssignmentOrder: number | null = null;
-  const lessonsWithGating = course.lessons.map((l) => {
-    const locked = blockingAssignmentOrder !== null && l.order > blockingAssignmentOrder;
-    if (l.type === "ASSIGNMENT" && !submissionByLesson.has(l.id) && blockingAssignmentOrder === null) {
-      blockingAssignmentOrder = l.order;
-    }
-    return {
-      ...l,
-      progress: progressByLesson.get(l.id) ?? null,
-      submission: submissionByLesson.get(l.id) ?? null,
-      locked,
-    };
+  // A lesson is locked if some earlier ASSIGNMENT lesson (in display
+  // order — see lib/lessonOrder.ts) hasn't been submitted yet — mirrors
+  // lib/lessonGating.ts so the UI can show a lock icon up front.
+  let blocked = false;
+  const lessonsWithGating = sortLessonsForDisplay(course.lessons, course.modules).map((l) => {
+    const locked = blocked;
+    if (l.type === "ASSIGNMENT" && !submissionByLesson.has(l.id)) blocked = true;
+    return employeeLessonDTO(l, progressByLesson.get(l.id) ?? null, submissionByLesson.get(l.id) ?? null, locked);
   });
 
-  return { ...course, lessons: lessonsWithGating };
+  const { createdById: _createdBy, ...rest } = course;
+  return { ...rest, lessons: lessonsWithGating };
+}
+
+/**
+ * What an employee gets to see of a lesson. Storage keys never leave the
+ * server, and a locked lesson's content (link target, assignment prompt)
+ * stays hidden until it unlocks — otherwise a LINK lesson's URL could be
+ * read straight from the API response and the gate skipped.
+ */
+function employeeLessonDTO(l: Lesson, progress: Progress | null, submission: LessonSubmission | null, locked: boolean) {
+  return {
+    id: l.id,
+    courseId: l.courseId,
+    moduleId: l.moduleId,
+    title: l.title,
+    type: l.type,
+    order: l.order,
+    fileName: l.fileName,
+    conversionStatus: l.conversionStatus,
+    durationSeconds: l.durationSeconds,
+    linkUrl: locked ? null : l.linkUrl,
+    assignmentPrompt: locked ? null : l.assignmentPrompt,
+    progress,
+    submission: submission
+      ? {
+          id: submission.id,
+          lessonId: submission.lessonId,
+          employeeId: submission.employeeId,
+          responseText: submission.responseText,
+          fileName: submission.fileName,
+          status: submission.status,
+          reviewNote: submission.reviewNote,
+          reviewedAt: submission.reviewedAt,
+          submittedAt: submission.submittedAt,
+        }
+      : null,
+    locked,
+  };
 }
 
 // --- Public (no auth) — powers the marketing home page's course cards ------
@@ -402,14 +454,36 @@ export async function updateModule(moduleId: string, input: { title: string }) {
 
 export async function reorderModules(courseId: string, orderedModuleIds: string[]) {
   await getCourseAdmin(courseId);
+  const modules = await prisma.module.findMany({ where: { courseId, isDeleted: false }, select: { id: true } });
+  assertSameIdSet(orderedModuleIds, modules.map((m) => m.id), "module");
   await prisma.$transaction(
     orderedModuleIds.map((id, index) => prisma.module.update({ where: { id }, data: { order: index } }))
   );
+  await renumberLessons(courseId);
+}
+
+/**
+ * Rewrites Lesson.order to match the display sequence after a structural
+ * change (module moved/removed). Gating already sorts by display order, so
+ * this just keeps the stored numbers honest for anything that reads them.
+ */
+export async function renumberLessons(courseId: string) {
+  const [lessons, modules] = await Promise.all([
+    prisma.lesson.findMany({ where: { courseId, isDeleted: false }, select: { id: true, order: true, moduleId: true } }),
+    prisma.module.findMany({ where: { courseId, isDeleted: false }, select: { id: true, order: true } }),
+  ]);
+  const updates = sortLessonsForDisplay(lessons, modules)
+    .map((l, index) => ({ l, index }))
+    .filter(({ l, index }) => l.order !== index)
+    .map(({ l, index }) => prisma.lesson.update({ where: { id: l.id }, data: { order: index } }));
+  if (updates.length) await prisma.$transaction(updates);
 }
 
 export async function softDeleteModule(moduleId: string) {
   const mod = await getModuleOr404(moduleId);
   // Unlink lessons from the deleted module so they become ungrouped
   await prisma.lesson.updateMany({ where: { moduleId: mod.id }, data: { moduleId: null } });
-  return prisma.module.update({ where: { id: mod.id }, data: { isDeleted: true } });
+  const deleted = await prisma.module.update({ where: { id: mod.id }, data: { isDeleted: true } });
+  await renumberLessons(mod.courseId);
+  return deleted;
 }

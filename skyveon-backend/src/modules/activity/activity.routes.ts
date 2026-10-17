@@ -1,11 +1,13 @@
 import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../../lib/asyncHandler";
-import { requireAuth, requireRole } from "../../middleware/auth";
+import { requireAuth, requireRole, requireAnyPermission } from "../../middleware/auth";
 import { prisma } from "../../lib/prisma";
 
 export const activityRouter = Router();
-activityRouter.use(requireAuth, requireRole("ADMIN"));
+// The log names users and what they did — only admins who already see
+// people or progress data get it, not an admin with zero permissions.
+activityRouter.use(requireAuth, requireRole("ADMIN"), requireAnyPermission("MANAGE_EMPLOYEES", "VIEW_PROGRESS"));
 
 const querySchema = z.object({
   userId: z.string().optional(),

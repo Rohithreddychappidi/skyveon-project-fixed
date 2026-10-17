@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { api, apiFetch, refreshAccessToken, setAccessToken, setUnauthorizedHandler } from "@/lib/api";
+import { api, apiFetch, hadSession, refreshAccessToken, setAccessToken, setSessionHint, setUnauthorizedHandler } from "@/lib/api";
 import type { AuthUser } from "@/lib/api-types";
 
 type Status = "loading" | "authenticated" | "unauthenticated";
@@ -22,6 +22,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearSession = useCallback(() => {
     setAccessToken(null);
+    setSessionHint(false);
     setUser(null);
     setStatus("unauthenticated");
   }, []);
@@ -30,12 +31,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUnauthorizedHandler(clearSession);
 
     (async () => {
+      // Public pages skip the refresh call entirely for visitors who never
+      // signed in on this browser (it could only 401). Portal pages always
+      // try, so a session from before this hint existed still restores.
+      const path = window.location.pathname;
+      const isPortal = path.startsWith("/admin") || path.startsWith("/employee");
+      if (!isPortal && !hadSession()) {
+        clearSession();
+        return;
+      }
       const refreshed = await refreshAccessToken();
       if (refreshed) {
         try {
           const body = await apiFetch("/api/auth/me");
           setUser(body.user);
           setStatus("authenticated");
+          setSessionHint(true);
           return;
         } catch {
           // fall through to unauthenticated
@@ -52,6 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAccessToken(body.accessToken);
     setUser(body.user);
     setStatus("authenticated");
+    setSessionHint(true);
     return body.user as AuthUser;
   }, []);
 

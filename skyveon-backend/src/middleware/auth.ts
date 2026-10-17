@@ -29,7 +29,12 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
       throw ApiError.unauthorized("Missing access token");
     }
     const token = header.slice("Bearer ".length);
-    const payload = verifyAccessToken(token);
+    let payload;
+    try {
+      payload = verifyAccessToken(token);
+    } catch {
+      throw ApiError.unauthorized("Invalid or expired access token");
+    }
 
     const user = await prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user || user.isDeleted) {
@@ -49,7 +54,9 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     };
     next();
   } catch (err) {
-    next(ApiError.unauthorized("Invalid or expired access token"));
+    // Keep specific ApiErrors (e.g. 403 "deactivated") — only unexpected
+    // failures collapse into a generic 401.
+    next(err instanceof ApiError ? err : ApiError.unauthorized("Invalid or expired access token"));
   }
 }
 

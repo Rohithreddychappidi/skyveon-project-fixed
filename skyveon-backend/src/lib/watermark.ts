@@ -8,13 +8,16 @@ export interface WatermarkIdentity {
 }
 
 function watermarkLabel(identity: WatermarkIdentity) {
-  const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+  // Day-level stamp, not minute-level: the same viewer re-opening the same
+  // document gets byte-identical output, so a PDF viewer never mixes bytes
+  // from two different renders.
+  const stamp = new Date().toISOString().slice(0, 10);
   return `${identity.name} · ${identity.email} · ${identity.id} · ${stamp}`;
 }
 
 /** Tiles a translucent diagonal text watermark across every page of a PDF. */
 export async function watermarkPdf(input: Buffer, identity: WatermarkIdentity): Promise<Buffer> {
-  const pdfDoc = await PDFDocument.load(input);
+  const pdfDoc = await PDFDocument.load(input, { updateMetadata: false });
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const label = watermarkLabel(identity);
   const fontSize = 11;

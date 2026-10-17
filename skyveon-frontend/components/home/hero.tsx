@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { GraduationCap, BookOpen, PlayCircle, Users } from "lucide-react";
 import type { HomeCmsContent, ImagePosition } from "@/lib/cms-types";
-import { resolveImageUrl } from "@/lib/api";
+import { CmsImage } from "./cms-image";
 
 /** Maps our ImagePosition union to a CSS object-position value. */
 function positionToCSS(pos: ImagePosition | undefined): string {
@@ -65,20 +65,22 @@ export function Hero({ hero }: { hero: HomeCmsContent["hero"] }) {
           <>
             {/* Mobile image */}
             {activeMobileUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={resolveImageUrl(activeMobileUrl)}
+              <CmsImage
+                src={activeMobileUrl}
                 alt={hero.altText || "Skyveon Learning Hub"}
-                className="absolute inset-0 h-full w-full object-cover sm:hidden"
+                sizes="100vw"
+                priority
+                className="object-cover sm:hidden"
                 style={{ objectPosition: mobileObjectPosition }}
               />
             )}
             {/* Desktop/tablet image */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={resolveImageUrl(activeUrl)}
+            <CmsImage
+              src={activeUrl}
               alt={hero.altText || "Skyveon Learning Hub"}
-              className="absolute inset-0 h-full w-full object-cover hidden sm:block"
+              sizes="100vw"
+              priority
+              className="object-cover hidden sm:block"
               style={{ objectPosition }}
             />
           </>

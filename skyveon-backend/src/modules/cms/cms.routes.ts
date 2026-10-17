@@ -2,11 +2,12 @@ import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../../lib/asyncHandler";
 import { requireAuth, requireRole, requirePermission, requireAnyPermission } from "../../middleware/auth";
-import { upload } from "../../middleware/upload";
+import { imageUpload } from "../../middleware/upload";
 import { prisma } from "../../lib/prisma";
 import { logActivity } from "../../lib/activityLog";
 import { ApiError } from "../../lib/apiError";
-import { getStorage, makeStorageKey } from "../../lib/storage";
+import { getStorage, isSafeKeySegment, makeStorageKey } from "../../lib/storage";
+import { imageMimeForKey, optimizeImage } from "../../lib/imageOptimize";
 
 export const cmsRouter = Router();
 
@@ -55,14 +56,16 @@ cmsRouter.post(
   requireAuth,
   requireRole("ADMIN"),
   requireAnyPermission("MANAGE_CMS", "MANAGE_COURSES"),
-  upload.single("file"),
+  imageUpload.single("file"),
   asyncHandler(async (req, res) => {
     if (!req.file) throw ApiError.badRequest("No file uploaded");
     if (!req.file.mimetype.startsWith("image/")) {
       throw ApiError.badRequest("Only image files are allowed here.");
     }
-    const key = makeStorageKey(req.file.originalname);
-    await getStorage().save(`cms/${key}`, req.file.buffer, req.file.mimetype);
+    // Re-encoded to WebP and size-capped — originals were 1.2–1.6 MB PNGs.
+    const { buffer, ext, mime } = await optimizeImage(req.file.buffer);
+    const key = makeStorageKey(`image${ext}`);
+    await getStorage().save(`cms/${key}`, buffer, mime);
     await logActivity({ userId: req.user!.id, action: "cms.upload_image" });
     res.status(201).json({ url: `/api/cms/image/${key}` });
   })
@@ -74,14 +77,16 @@ cmsRouter.post(
 cmsRouter.get(
   /^\/image\/(.+)/,
   asyncHandler(async (req, res) => {
+    if (!isSafeKeySegment(req.params[0])) {
+      res.status(404).json({ error: "Image not found" });
+      return;
+    }
     const key = `cms/${req.params[0]}`;
     try {
       const buffer = await getStorage().read(key);
-      const ext = key.split(".").pop()?.toLowerCase();
-      const mime =
-        ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : ext === "gif" ? "image/gif" : "image/jpeg";
-      res.setHeader("Content-Type", mime);
+      res.setHeader("Content-Type", imageMimeForKey(key));
       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      res.setHeader("X-Content-Type-Options", "nosniff");
       res.send(buffer);
     } catch (err) {
       // Log the REAL cause (wrong B2 region/credentials, network issue,

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { asyncHandler } from "../../lib/asyncHandler";
-import { requireAuth, requireRole } from "../../middleware/auth";
+import { requireAuth, requireRole, requirePermission } from "../../middleware/auth";
 import * as controller from "./files.controller";
 
 export const filesRouter = Router();
@@ -11,4 +11,4 @@ export const filesRouter = Router();
 filesRouter.get("/:lessonId/stream", asyncHandler(controller.stream));
 
 filesRouter.get("/:lessonId/link", requireAuth, asyncHandler(controller.getLink));
-filesRouter.get("/:lessonId/admin-download", requireAuth, requireRole("ADMIN"), asyncHandler(controller.adminDownload));
+filesRouter.get("/:lessonId/admin-download", requireAuth, requireRole("ADMIN"), requirePermission("MANAGE_COURSES"), asyncHandler(controller.adminDownload));

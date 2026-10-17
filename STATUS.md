@@ -1,11 +1,76 @@
 # Skyveon Learning Hub — Project Status
 
 ```
-skyveon-frontend/   Next.js 14 UI
-skyveon-backend/    Express + Prisma API server
+skyveon-frontend/   Next.js 14 UI           → Vercel (www.skyveon.com)
+skyveon-backend/    Express + Prisma API    → nginx + Node (api.skyveon.com)
 ```
 
-## Latest round: 2 real fixes + 1 honest answer
+## Latest round: audit fixes (October 2026)
+
+A full code review plus live testing of www.skyveon.com turned up issues
+that are fixed in this round. The ones users would have noticed:
+
+- **PDF / PPT / DOC lessons wouldn't open in production.** The API built
+  file links as `http://…` behind nginx, and browsers block http frames
+  inside the https site. Links are now relative paths.
+- **Long videos were effectively unplayable.** Each viewer's first open
+  re-encoded the whole video with ffmpeg (24 s for a 5-minute video,
+  minutes or a timeout for the 1–5 h lectures), and every seek re-read
+  the whole file. Videos now stream byte ranges straight from storage
+  (playback starts instantly), the viewer's name/email is a moving overlay
+  on the player instead, playback resumes where the viewer left off, and
+  links last for the whole video.
+- **Random logouts** when several requests refreshed the session at once.
+- **Delete employee** did nothing (the endpoint didn't exist). It's now a
+  real permanent delete, master admin only.
+- Admins with only some permissions (e.g. just Assignments or Progress)
+  couldn't use those pages; the dashboard no longer makes one request per
+  course.
+- Reordering modules no longer desyncs the assignment lock order from what
+  employees see.
+- **PDF / PPT / DOC lessons now render with pdf.js** inside the page instead
+  of the browser's built-in PDF viewer, so they work on Android Chrome
+  (which has no built-in viewer) and no longer show a download/print toolbar.
+- The "developer tools open" blur no longer fires for people with browser
+  sidebars, bookmark bars, zoom, or on phones: it now only reacts to the
+  page shrinking substantially *after* load, and is off on touch devices.
+
+Security fixes: an admin with MANAGE_EMPLOYEES could rename/deactivate/
+delete the master admin or create new admins; locked lessons leaked their
+link URLs; login/forgot-password had no rate limit; server errors leaked
+internals; zero-permission admins could read the activity log and download
+original files; an upload filename could write outside the temp folder;
+unconverted Office files were served raw; emails didn't escape names;
+no clickjacking headers; deactivated users could keep refreshing; password
+change didn't sign out other sessions.
+
+Also: uploads go to disk instead of RAM and are checked against the lesson
+type, cover/CMS images are re-encoded to WebP, the home page is
+server-rendered with CDN-optimized images, robots.txt/sitemap/Google
+verification are now served, Prisma migrations are tracked, and both apps
+have a test suite (`npm test`).
+
+### Deploy checklist for this round
+
+1. **Rotate the Neon database password** — the old connection string was
+   committed in `.env.example` (now a placeholder) and stays in git history.
+2. Backend: `npm ci && npx prisma generate && npm run build`, then once:
+   `npx prisma migrate resolve --applied 0_init` (see backend README §2),
+   then restart. ffmpeg is now only needed for `ffprobe`.
+3. nginx: pass `X-Forwarded-For` / `X-Forwarded-Proto`, allow ~2 GB
+   bodies (backend README, "Running behind nginx").
+4. Frontend: redeploy on Vercel (`NEXT_PUBLIC_API_URL=https://api.skyveon.com`).
+5. Optional cleanup: delete the `watermarked-video/` prefix in the B2 bucket.
+6. Fix two lessons with the wrong file type, via the course builder:
+   *Workday HCM → "Organizations (Assignment)"* is a VIDEO lesson holding a
+   PDF, and *Java FullStack → "SQL Joins Subqueries and Grouping"* is a PDF
+   lesson holding an MP4. Delete each and re-add it with the right type, or
+   upload the right kind of file. The empty "Artificial intelligence"
+   course (one "TEST" video with no file) looks like a leftover.
+
+---
+
+## Previous round: 2 real fixes + 1 honest answer
 
 1. **Fixed — videos never marking complete.** Root cause: nothing in the
    admin UI ever set a video lesson's `durationSeconds`, and the 90%-watched
@@ -162,7 +227,6 @@ npm run dev
 
 ## 3. Still pending
 
-1. **Deployment** — neither app is on a server yet.
 2. **Production secrets** — dev values still in `.env`.
 3. **Real email sending** — SES/SendGrid SMTP credentials, whenever you're
    ready (domain verification is the only externally-timed piece here).

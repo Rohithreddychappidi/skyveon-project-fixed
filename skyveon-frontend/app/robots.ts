@@ -15,6 +15,6 @@ export default function robots(): MetadataRoute.Robots {
         "/reset-password",
       ],
     },
-    sitemap: "https://skyveon.com/sitemap.xml",
+    sitemap: "https://www.skyveon.com/sitemap.xml",
   };
 }

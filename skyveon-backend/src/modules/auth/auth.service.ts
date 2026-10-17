@@ -62,26 +62,54 @@ export async function refresh(refreshTokenRaw: string) {
     throw ApiError.unauthorized("Invalid refresh token");
   }
 
-  const record = await prisma.refreshToken.findUnique({ where: { id: payload.jti } });
-  if (!record || record.revokedAt || record.expiresAt < new Date()) {
+  const record = await prisma.refreshToken.findUnique({ where: { id: payload.jti }, include: { user: true } });
+  if (!record || record.expiresAt < new Date()) {
     throw ApiError.unauthorized("Refresh token expired or revoked");
   }
   if (record.tokenHash !== hashToken(refreshTokenRaw)) {
     throw ApiError.unauthorized("Refresh token mismatch");
   }
+  if (record.user.isDeleted || record.user.status === "INACTIVE") {
+    throw ApiError.unauthorized("This account has been deactivated");
+  }
 
-  // rotate: revoke the old token, issue a new pair
-  await prisma.refreshToken.update({ where: { id: record.id }, data: { revokedAt: new Date() } });
+  if (record.revokedAt) {
+    // Two requests (or two tabs) refreshing with the same cookie at once:
+    // the first rotates it, the second arrives a moment later with the
+    // now-rotated token. Within a short grace window, hand the late request
+    // a fresh pair instead of logging the user out. Logout and password
+    // resets overwrite the stored hash (see KILLED_HASH), so those tokens
+    // already failed the hash check above and never get here.
+    if (Date.now() - record.revokedAt.getTime() <= ROTATION_GRACE_MS) {
+      return issueTokenPair(record.userId);
+    }
+    throw ApiError.unauthorized("Refresh token expired or revoked");
+  }
+
+  // rotate: revoke the old token, issue a new pair. The revokedAt: null
+  // guard makes this atomic; a concurrent request that loses the race is
+  // simply inside the grace window too.
+  await prisma.refreshToken.updateMany({
+    where: { id: record.id, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
   return issueTokenPair(record.userId);
 }
+
+const ROTATION_GRACE_MS = 30_000;
+// Written over tokenHash when a session is ended on purpose (logout,
+// password reset/change), so the token can never match again — unlike a
+// routine rotation, which keeps its hash for the grace window above.
+const KILLED_HASH = "revoked";
 
 export async function logout(refreshTokenRaw: string | undefined) {
   if (!refreshTokenRaw) return;
   try {
     const payload = verifyRefreshToken(refreshTokenRaw);
+    const record = await prisma.refreshToken.findUnique({ where: { id: payload.jti } });
     await prisma.refreshToken.updateMany({
-      where: { id: payload.jti, revokedAt: null },
-      data: { revokedAt: new Date() },
+      where: { id: payload.jti },
+      data: { revokedAt: record?.revokedAt ?? new Date(), tokenHash: KILLED_HASH },
     });
   } catch {
     // already invalid/expired — nothing to revoke
@@ -167,8 +195,8 @@ export async function resetPassword(token: string, newPassword: string) {
     prisma.authToken.update({ where: { id: authTokenId }, data: { usedAt: new Date() } }),
     // resetting a password invalidates every existing session
     prisma.refreshToken.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date() },
+      where: { userId, tokenHash: { not: KILLED_HASH } },
+      data: { revokedAt: new Date(), tokenHash: KILLED_HASH },
     }),
   ]);
 
@@ -177,14 +205,35 @@ export async function resetPassword(token: string, newPassword: string) {
 
 // Logged-in self-service change (as opposed to the emailed reset link flow
 // above) — used from the profile page.
-export async function changePassword(userId: string, currentPassword: string, newPassword: string) {
+export async function changePassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+  currentRefreshToken?: string
+) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   if (!user.passwordHash) throw ApiError.badRequest("Account hasn't been set up yet.");
 
   const valid = await verifyPassword(currentPassword, user.passwordHash);
   if (!valid) throw ApiError.unauthorized("Current password is incorrect");
 
+  // Keep the session the change was made from; sign out every other one.
+  let keepJti: string | undefined;
+  if (currentRefreshToken) {
+    try {
+      keepJti = verifyRefreshToken(currentRefreshToken).jti;
+    } catch {
+      // cookie missing/expired — revoke everything
+    }
+  }
+
   const passwordHash = await hashPassword(newPassword);
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+    prisma.refreshToken.updateMany({
+      where: { userId, tokenHash: { not: KILLED_HASH }, ...(keepJti ? { id: { not: keepJti } } : {}) },
+      data: { revokedAt: new Date(), tokenHash: KILLED_HASH },
+    }),
+  ]);
   await logActivity({ userId, action: "auth.change_password" });
 }

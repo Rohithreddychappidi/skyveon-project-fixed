@@ -7,7 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LessonTypeIcon } from "@/components/ui/lesson-icon";
 import { useContentProtection } from "@/components/employee/use-content-protection";
-import { api, ApiError } from "@/lib/api";
+import { VideoWatermark } from "@/components/employee/video-watermark";
+import { PdfViewer } from "@/components/employee/pdf-viewer";
+import { useAuth } from "@/components/auth/auth-context";
+import { api, apiUrl, ApiError } from "@/lib/api";
 import type { Course, Lesson } from "@/lib/api-types";
 import { Check, ExternalLink, CircleDashed, CheckCircle2, Lock, EyeOff, Paperclip, X as XIcon, SkipForward, SkipBack, Maximize, Minimize } from "lucide-react";
 
@@ -20,6 +23,10 @@ export default function LessonViewerPage() {
   const [course, setCourse] = useState<Course | null>(null);
   const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const { user } = useAuth();
   const [confirming, setConfirming] = useState(false);
   const [linkOpened, setLinkOpened] = useState(false);
   const [assignmentResponse, setAssignmentResponse] = useState("");
@@ -30,6 +37,10 @@ export default function LessonViewerPage() {
   const videoWrapperRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const lastHeartbeatRef = useRef(0);
+  // Position to jump back to once the video (re)loads — the saved resume
+  // point on first open, or where playback was when a link had to be renewed.
+  const resumeAtRef = useRef<number | null>(null);
+  const renewingLinkRef = useRef(false);
 
   const { blurred, reason } = useContentProtection();
 
@@ -65,19 +76,28 @@ export default function LessonViewerPage() {
   }, [params.id]);
 
   useEffect(() => {
-    loadCourse().then((c) => {
-      if (!c) return;
-      const cLessons = c.lessons ?? [];
-      const firstIncomplete = cLessons.find((l: Lesson) => l.progress?.status !== "COMPLETED");
-      setActiveLessonId((firstIncomplete ?? cLessons[0])?.id ?? null);
-    });
+    loadCourse()
+      .then((c) => {
+        if (!c) return;
+        const cLessons = c.lessons ?? [];
+        const firstIncomplete = cLessons.find((l: Lesson) => !l.locked && l.progress?.status !== "COMPLETED");
+        setActiveLessonId((firstIncomplete ?? cLessons[0])?.id ?? null);
+      })
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Couldn't load this course — try again."));
   }, [loadCourse]);
+
+  const fetchSignedUrl = useCallback(async (lessonId: string) => {
+    const body = await api.get(`/api/files/${lessonId}/link`);
+    return apiUrl(body.path);
+  }, []);
 
   // Whenever the active lesson changes: mark it started, and if it has
   // hosted content, fetch a fresh 5-minute signed URL for it.
   useEffect(() => {
     if (!activeLesson) return;
     setSignedUrl(null);
+    setLinkError(null);
+    setActionError(null);
     setLinkOpened(false);
     setAssignmentResponse("");
     setAssignmentFile(null);
@@ -87,11 +107,20 @@ export default function LessonViewerPage() {
       if (err instanceof ApiError) setLockedNotice(err.message);
     });
 
+    if (activeLesson.type === "VIDEO") {
+      const last = activeLesson.progress?.lastPositionSeconds ?? 0;
+      const duration = activeLesson.durationSeconds ?? 0;
+      // Resume where they left off, unless that's basically the start or the end.
+      resumeAtRef.current = last > 5 && (!duration || last < duration - 5) ? last : null;
+    }
+
     if (activeLesson.type !== "LINK" && activeLesson.type !== "ASSIGNMENT") {
-      api
-        .get(`/api/files/${activeLesson.id}/link`)
-        .then((body) => setSignedUrl(body.url))
-        .catch(() => setSignedUrl(null));
+      fetchSignedUrl(activeLesson.id)
+        .then(setSignedUrl)
+        .catch((err) => {
+          setSignedUrl(null);
+          setLinkError(err instanceof ApiError ? err.message : "Couldn't load this lesson — try again.");
+        });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLessonId]);
@@ -99,9 +128,14 @@ export default function LessonViewerPage() {
   async function sendHeartbeat(positionSeconds: number) {
     if (!activeLesson) return;
     lastHeartbeatRef.current = Date.now();
-    const body = await api.post(`/api/progress/${activeLesson.id}/heartbeat`, {
-      positionSeconds: Math.floor(positionSeconds),
-    });
+    let body;
+    try {
+      body = await api.post(`/api/progress/${activeLesson.id}/heartbeat`, {
+        positionSeconds: Math.floor(positionSeconds),
+      });
+    } catch {
+      return; // transient — the next heartbeat will catch up
+    }
     setCourse((prev) =>
       prev
         ? {
@@ -129,6 +163,37 @@ export default function LessonViewerPage() {
   }
 
   const programmaticSeekRef = useRef(false);
+
+  function handleLoadedMetadata() {
+    const video = videoRef.current;
+    const target = resumeAtRef.current;
+    if (!video || target === null) return;
+    resumeAtRef.current = null;
+    programmaticSeekRef.current = true;
+    video.currentTime = Math.min(target, video.duration || target);
+  }
+
+  function handlePause() {
+    // Save the resume point when they stop, not just every ~10s of playback.
+    const video = videoRef.current;
+    if (video && !video.ended) sendHeartbeat(video.currentTime);
+  }
+
+  async function handleVideoError() {
+    // Most likely the signed link expired during a very long pause. Fetch a
+    // fresh one and carry on from the same spot (once — don't loop).
+    const video = videoRef.current;
+    if (!video || !activeLesson || renewingLinkRef.current) return;
+    renewingLinkRef.current = true;
+    resumeAtRef.current = video.currentTime || resumeAtRef.current;
+    try {
+      setSignedUrl(await fetchSignedUrl(activeLesson.id));
+    } catch (err) {
+      setLinkError(err instanceof ApiError ? err.message : "This video couldn't be loaded — try reopening the lesson.");
+    } finally {
+      setTimeout(() => (renewingLinkRef.current = false), 5000);
+    }
+  }
 
   function handleSkip(seconds: number) {
     // Only ever rendered/enabled once the lesson has already been completed
@@ -185,6 +250,7 @@ export default function LessonViewerPage() {
   async function handleConfirm() {
     if (!activeLesson) return;
     setConfirming(true);
+    setActionError(null);
     try {
       const body = await api.post(`/api/progress/${activeLesson.id}/confirm`);
       setCourse((prev) =>
@@ -195,6 +261,10 @@ export default function LessonViewerPage() {
             }
           : prev
       );
+      // Completing a lesson can change what's unlocked/next.
+      loadCourse().catch(() => {});
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't mark this complete — try again.");
     } finally {
       setConfirming(false);
     }
@@ -228,6 +298,7 @@ export default function LessonViewerPage() {
     setActiveLessonId(lesson.id);
   }
 
+  if (loadError) return <p className="text-sm text-crimson">{loadError}</p>;
   if (!course) return <p className="text-sm text-slate">Loading…</p>;
 
   const lessons = course.lessons ?? [];
@@ -349,6 +420,12 @@ export default function LessonViewerPage() {
                 )}
               </div>
 
+              {(linkError || actionError) && (
+                <p className="text-sm text-crimson bg-crimson/5 border border-crimson/20 rounded-lg px-4 py-2.5 mb-4">
+                  {linkError || actionError}
+                </p>
+              )}
+
               {lockedNotice && (
                 <p className="text-sm text-crimson bg-crimson/5 border border-crimson/20 rounded-lg px-4 py-2.5 mb-4">
                   {lockedNotice}
@@ -369,8 +446,13 @@ export default function LessonViewerPage() {
                         onTimeUpdate={handleTimeUpdate}
                         onSeeking={handleSeeking}
                         onEnded={handleEnded}
+                        onPause={handlePause}
+                        onLoadedMetadata={handleLoadedMetadata}
+                        onError={handleVideoError}
+                        playsInline
                         className="h-full w-full"
                       />
+                      {user && <VideoWatermark label={`${user.name} · ${user.email}`} />}
                       {/* Backward skip is always safe — rewinding can never
                           let someone skip past unwatched content, so there's
                           no reason to restrict it to rewatch-only. Forward
@@ -411,7 +493,7 @@ export default function LessonViewerPage() {
                     </>
                   ) : (
                     <div className="h-full w-full flex items-center justify-center text-white/50 text-sm">
-                      Loading video…
+                      {linkError ? "Video unavailable" : "Loading video…"}
                     </div>
                   )}
                 </div>
@@ -424,14 +506,12 @@ export default function LessonViewerPage() {
                   style={{ height: "min(92vh, 1400px)" }}
                 >
                   {signedUrl ? (
-                    <iframe
-                      src={`${signedUrl}#toolbar=0&navpanes=0&statusbar=0`}
-                      className="h-full w-full"
-                      title={activeLesson.title}
-                    />
+                    <PdfViewer url={signedUrl} title={activeLesson.title} />
                   ) : (
                     <div className="h-full w-full flex items-center justify-center text-slate text-sm">
-                      {activeLesson.conversionStatus === "PENDING"
+                      {linkError
+                        ? "This document isn't available right now."
+                        : activeLesson.conversionStatus === "PENDING"
                         ? "This document is still being converted — check back shortly."
                         : activeLesson.conversionStatus === "FAILED"
                         ? "This document couldn't be converted. Contact your admin."
@@ -448,7 +528,9 @@ export default function LessonViewerPage() {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={signedUrl} alt={activeLesson.title} className="w-full" draggable={false} />
                   ) : (
-                    <div className="h-64 flex items-center justify-center text-slate text-sm">Loading…</div>
+                    <div className="h-64 flex items-center justify-center text-slate text-sm">
+                      {linkError ? "This image isn't available right now." : "Loading…"}
+                    </div>
                   )}
                 </div>
               )}

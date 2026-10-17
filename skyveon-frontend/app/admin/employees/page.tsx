@@ -26,16 +26,21 @@ export default function EmployeesPage() {
   const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [resendState, setResendState] = useState<Record<string, "sending" | "sent" | "failed">>({});
 
   async function load() {
     setLoading(true);
-    const [empBody, deptBody] = await Promise.all([
-      api.get("/api/users"),
-      api.get("/api/departments"),
-    ]);
-    setEmployees(empBody.employees);
-    setDepartments(deptBody.departments);
-    setLoading(false);
+    setLoadError(null);
+    try {
+      const [empBody, deptBody] = await Promise.all([api.get("/api/users"), api.get("/api/departments")]);
+      setEmployees(empBody.employees);
+      setDepartments(deptBody.departments);
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.message : "Couldn't load employees — refresh to try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -94,10 +99,12 @@ export default function EmployeesPage() {
   }
 
   async function resendSetup(id: string) {
+    setResendState((prev) => ({ ...prev, [id]: "sending" }));
     try {
       await api.post(`/api/users/${id}/resend-setup`);
+      setResendState((prev) => ({ ...prev, [id]: "sent" }));
     } catch {
-      // best-effort — no need to block the UI on this
+      setResendState((prev) => ({ ...prev, [id]: "failed" }));
     }
   }
 
@@ -135,6 +142,8 @@ export default function EmployeesPage() {
         }
       />
 
+      {loadError && <p className="mb-4 text-sm text-crimson">{loadError}</p>}
+
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[600px]">
@@ -159,9 +168,17 @@ export default function EmployeesPage() {
                     {!emp.hasSetPassword ? (
                       <button
                         onClick={() => resendSetup(emp.id)}
-                        className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo hover:underline"
+                        disabled={resendState[emp.id] === "sending"}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo hover:underline disabled:opacity-50"
                       >
-                        <Mail size={12} /> Resend setup link
+                        <Mail size={12} />{" "}
+                        {resendState[emp.id] === "sending"
+                          ? "Sending…"
+                          : resendState[emp.id] === "sent"
+                          ? "Setup link sent"
+                          : resendState[emp.id] === "failed"
+                          ? "Couldn't send — retry"
+                          : "Resend setup link"}
                       </button>
                     ) : (
                       <span className="text-xs text-slate">Active</span>

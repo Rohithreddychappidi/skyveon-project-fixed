@@ -26,9 +26,14 @@ export default function CoursesPage() {
 
   async function load() {
     setLoading(true);
-    const body = await api.get("/api/courses");
-    setCourses(body.courses);
-    setLoading(false);
+    try {
+      const body = await api.get("/api/courses");
+      setCourses(body.courses);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't load courses — refresh to try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -121,7 +126,12 @@ export default function CoursesPage() {
       )
     )
       return;
-    await api.delete(`/api/courses/${course.id}`);
+    try {
+      await api.delete(`/api/courses/${course.id}`);
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : "Couldn't delete the course — try again.");
+      return;
+    }
     await load();
   }
 
@@ -136,6 +146,8 @@ export default function CoursesPage() {
           </Button>
         }
       />
+
+      {error && !panelOpen && <p className="mb-4 text-sm text-crimson">{error}</p>}
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {courses.map((course) => (

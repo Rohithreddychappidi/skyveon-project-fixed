@@ -6,7 +6,8 @@ import { Card } from "@/components/ui/card";
 import { ProgressRing } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
-import type { Employee, Course, Assignment } from "@/lib/api-types";
+import { useAuth } from "@/components/auth/auth-context";
+import type { AdminPermission, Assignment, CourseOption, EmployeeOption } from "@/lib/api-types";
 import { Users, BookOpen, ClipboardList, TrendingUp } from "lucide-react";
 
 interface ActivityEntry {
@@ -30,41 +31,32 @@ function friendlyAction(action: string) {
 }
 
 export default function AdminDashboard() {
-  const [employees, setEmployees] = useState<Employee[] | null>(null);
-  const [courses, setCourses] = useState<Course[] | null>(null);
+  const { user } = useAuth();
+  const [employees, setEmployees] = useState<EmployeeOption[] | null>(null);
+  const [courses, setCourses] = useState<CourseOption[] | null>(null);
   const [assignments, setAssignments] = useState<Assignment[] | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
   const [overallPercent, setOverallPercent] = useState<number | null>(null);
 
+  const can = (...perms: AdminPermission[]) =>
+    user?.role === "MASTER_ADMIN" || perms.some((p) => user?.adminPermissions.includes(p));
+  const canEmployees = can("MANAGE_EMPLOYEES", "MANAGE_ASSIGNMENTS");
+  const canCourses = can("MANAGE_COURSES", "MANAGE_ASSIGNMENTS", "VIEW_PROGRESS");
+  const canAssignments = can("MANAGE_ASSIGNMENTS");
+  const canActivity = can("MANAGE_EMPLOYEES", "VIEW_PROGRESS");
+  const canProgress = can("VIEW_PROGRESS");
+
   useEffect(() => {
-    api.get("/api/users").then((b) => setEmployees(b.employees));
-    api.get("/api/assignments").then((b) => setAssignments(b.assignments));
-    api.get("/api/activity?take=6").then((b) => setActivity(b.logs));
-
-    api.get("/api/courses").then(async (b) => {
-      const list: Course[] = b.courses;
-      setCourses(list);
-
-      // Aggregate a rough overall completion percentage across every
-      // course's progress table — fine for the handful of courses a
-      // company like this runs at a time.
-      const tables = await Promise.all(
-        list.map((c) =>
-          api.get(`/api/progress/course/${c.id}/table`).catch(() => null)
-        )
-      );
-      let completed = 0;
-      let total = 0;
-      for (const t of tables) {
-        if (!t) continue;
-        for (const row of t.rows) {
-          completed += row.completedLessons;
-          total += row.totalLessons;
-        }
-      }
-      setOverallPercent(total ? Math.round((completed / total) * 100) : 0);
-    });
-  }, []);
+    if (!user) return;
+    // Only ask for what this admin is allowed to see — a 403 per card
+    // helps nobody — and each card fails independently of the others.
+    if (canEmployees) api.get("/api/lookups/employees").then((b) => setEmployees(b.employees)).catch(() => {});
+    if (canCourses) api.get("/api/lookups/courses").then((b) => setCourses(b.courses)).catch(() => {});
+    if (canAssignments) api.get("/api/assignments").then((b) => setAssignments(b.assignments)).catch(() => {});
+    if (canActivity) api.get("/api/activity?take=6").then((b) => setActivity(b.logs)).catch(() => setActivity([]));
+    if (canProgress) api.get("/api/progress/overview").then((b) => setOverallPercent(b.percent)).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const activeEmployees = employees?.filter((e) => e.status === "ACTIVE").length ?? null;
   const totalCourses = courses?.length ?? null;
@@ -127,7 +119,9 @@ export default function AdminDashboard() {
               <p className="text-sm text-slate py-6 text-center">No activity yet.</p>
             )}
             {activity === null && (
-              <p className="text-sm text-slate py-6 text-center">Loading…</p>
+              <p className="text-sm text-slate py-6 text-center">
+                {canActivity ? "Loading…" : "Activity is visible to admins with employee or progress access."}
+              </p>
             )}
           </div>
         </Card>
@@ -137,7 +131,11 @@ export default function AdminDashboard() {
             <TrendingUp size={14} />
             <span>Overall completion</span>
           </div>
-          <ProgressRing percent={overallPercent ?? 0} size={110} label="lessons" />
+          {canProgress ? (
+            <ProgressRing percent={overallPercent ?? 0} size={110} label="lessons" />
+          ) : (
+            <p className="text-sm text-slate">Needs progress access.</p>
+          )}
         </Card>
       </div>
     </div>

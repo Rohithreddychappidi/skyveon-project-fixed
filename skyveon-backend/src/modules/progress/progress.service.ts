@@ -13,6 +13,13 @@ const VIDEO_COMPLETE_RATIO = 0.9;
 // videoHeartbeat() below.
 const MAX_FORWARD_JUMP_SECONDS = 45;
 
+const SUBMISSION_EXTENSIONS = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"];
+
+function isAllowedSubmissionFile(fileName: string) {
+  const lower = fileName.toLowerCase();
+  return SUBMISSION_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
 async function getLessonOrThrow(lessonId: string) {
   const lesson = await prisma.lesson.findFirst({ where: { id: lessonId, isDeleted: false } });
   if (!lesson) throw ApiError.notFound("Lesson not found");
@@ -46,7 +53,7 @@ async function getOrCreateProgress(employeeId: string, lessonId: string) {
 export async function startLesson(employeeId: string, lessonId: string) {
   const lesson = await getLessonOrThrow(lessonId);
   await ensureAssigned(employeeId, lesson.courseId);
-  await ensureLessonUnlocked(employeeId, lesson.courseId, lesson.order);
+  await ensureLessonUnlocked(employeeId, lesson.courseId, lesson.id);
 
   const progress = await getOrCreateProgress(employeeId, lessonId);
   if (progress.status === "NOT_STARTED") {
@@ -60,6 +67,7 @@ export async function videoHeartbeat(employeeId: string, lessonId: string, posit
   const lesson = await getLessonOrThrow(lessonId);
   if (lesson.type !== "VIDEO") throw ApiError.badRequest("Not a video lesson");
   await ensureAssigned(employeeId, lesson.courseId);
+  await ensureLessonUnlocked(employeeId, lesson.courseId, lesson.id);
 
   const progress = await getOrCreateProgress(employeeId, lessonId);
   const alreadyCompletedOnce = !!progress.completedAt;
@@ -109,6 +117,7 @@ export async function confirmLesson(employeeId: string, lessonId: string) {
     throw ApiError.badRequest("This lesson type doesn't use manual confirmation.");
   }
   await ensureAssigned(employeeId, lesson.courseId);
+  await ensureLessonUnlocked(employeeId, lesson.courseId, lesson.id);
 
   const progress = await getOrCreateProgress(employeeId, lessonId);
   // Require the lesson to have actually been opened first — confirming
@@ -154,7 +163,11 @@ export async function submitAssignment(
   if (!responseText && !input.file) {
     throw ApiError.badRequest("Write a response or attach a file.");
   }
+  if (input.file && !isAllowedSubmissionFile(input.file.originalname)) {
+    throw ApiError.badRequest("Attach a PDF, Word, Excel or PowerPoint file.");
+  }
   await ensureAssigned(employeeId, lesson.courseId);
+  await ensureLessonUnlocked(employeeId, lesson.courseId, lesson.id);
 
   const progress = await getOrCreateProgress(employeeId, lessonId);
   if (progress.status === "NOT_STARTED") {
@@ -166,7 +179,7 @@ export async function submitAssignment(
     const { getStorage, makeStorageKey } = await import("../../lib/storage");
     const storage = getStorage();
     const key = makeStorageKey(input.file.originalname);
-    await storage.save(key, input.file.buffer, input.file.mimetype);
+    await storage.saveFile(key, input.file.path, input.file.mimetype);
     fileFields = { fileKey: key, fileName: input.file.originalname, fileMime: input.file.mimetype };
   }
 
@@ -218,7 +231,7 @@ export async function getCourseProgressTable(courseId: string) {
 
   const employeeIds = new Set<string>();
   for (const a of assignments) {
-    if (a.targetType === "INDIVIDUAL" && a.employee) employeeIds.add(a.employee.id);
+    if (a.targetType === "INDIVIDUAL" && a.employee && !a.employee.isDeleted) employeeIds.add(a.employee.id);
     if (a.targetType === "DEPARTMENT" && a.department) {
       for (const u of a.department.users) employeeIds.add(u.id);
     }
@@ -248,4 +261,19 @@ export async function getCourseProgressTable(courseId: string) {
   });
 
   return { course: { id: course.id, title: course.title }, rows };
+}
+
+/** Overall lesson completion across every course, for the admin dashboard (one call instead of one per course). */
+export async function getOverview() {
+  const courses = await prisma.course.findMany({ where: { isDeleted: false }, select: { id: true } });
+  let completed = 0;
+  let total = 0;
+  for (const course of courses) {
+    const { rows } = await getCourseProgressTable(course.id);
+    for (const row of rows) {
+      completed += row.completedLessons;
+      total += row.totalLessons;
+    }
+  }
+  return { completedLessons: completed, totalLessons: total, percent: total ? Math.round((completed / total) * 100) : 0 };
 }

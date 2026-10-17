@@ -5,28 +5,40 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ProgressBar } from "@/components/ui/progress";
-import { api } from "@/lib/api";
-import type { Course, ProgressTableRow } from "@/lib/api-types";
+import { api, ApiError } from "@/lib/api";
+import type { CourseOption, ProgressTableRow } from "@/lib/api-types";
 import { statusLabel, statusTone } from "@/components/ui/lesson-icon";
 
 export default function ProgressPage() {
-  const [courses, setCourses] = useState<Course[]>([]);
+  const [courses, setCourses] = useState<CourseOption[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string>("");
   const [rows, setRows] = useState<ProgressTableRow[] | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.get("/api/courses").then((body) => {
-      setCourses(body.courses);
-      if (body.courses.length > 0) setSelectedCourseId(body.courses[0].id);
-      setLoading(false);
-    });
+    // /api/lookups/courses works with VIEW_PROGRESS alone; /api/courses needs MANAGE_COURSES.
+    api
+      .get("/api/lookups/courses")
+      .then((body) => {
+        setCourses(body.courses);
+        if (body.courses.length > 0) setSelectedCourseId(body.courses[0].id);
+      })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load courses."))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
     if (!selectedCourseId) return;
     setRows(null);
-    api.get(`/api/progress/course/${selectedCourseId}/table`).then((body) => setRows(body.rows));
+    setError(null);
+    api
+      .get(`/api/progress/course/${selectedCourseId}/table`)
+      .then((body) => setRows(body.rows))
+      .catch((err) => {
+        setRows([]);
+        setError(err instanceof ApiError ? err.message : "Couldn't load progress for this course.");
+      });
   }, [selectedCourseId]);
 
   return (
@@ -50,6 +62,8 @@ export default function ProgressPage() {
           ) : undefined
         }
       />
+
+      {error && <p className="mb-4 text-sm text-crimson">{error}</p>}
 
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">

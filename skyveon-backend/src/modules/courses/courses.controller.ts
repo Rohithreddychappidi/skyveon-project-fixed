@@ -4,7 +4,8 @@ import * as coursesService from "./courses.service";
 import { logActivity } from "../../lib/activityLog";
 import { ApiError } from "../../lib/apiError";
 import { prisma } from "../../lib/prisma";
-import { getStorage, makeStorageKey } from "../../lib/storage";
+import { getStorage, isSafeKeySegment, makeStorageKey } from "../../lib/storage";
+import { imageMimeForKey, optimizeImage } from "../../lib/imageOptimize";
 
 // --- Admin: courses ------------------------------------------------------
 
@@ -182,25 +183,27 @@ export async function uploadCoverImage(req: Request, res: Response) {
   if (!req.file.mimetype.startsWith("image/")) {
     throw ApiError.badRequest("Only image files are allowed.");
   }
-  const key = makeStorageKey(req.file.originalname);
-  await getStorage().save(`courses/${key}`, req.file.buffer, req.file.mimetype);
+  const { buffer, ext, mime } = await optimizeImage(req.file.buffer);
+  const key = makeStorageKey(`cover${ext}`);
+  await getStorage().save(`courses/${key}`, buffer, mime);
   await logActivity({ userId: req.user!.id, action: "course.upload_image" });
   res.status(201).json({ url: `/api/courses/image/${key}` });
 }
 
 export async function serveCourseImage(req: Request, res: Response) {
-  const key = `courses/${req.params[0]}`;
+  const segment = req.params[0];
+  if (!isSafeKeySegment(segment)) throw ApiError.notFound("Image not found");
+  const key = `courses/${segment}`;
+  let buffer: Buffer;
   try {
-    const buffer = await getStorage().read(key);
-    const ext = key.split(".").pop()?.toLowerCase();
-    const mime =
-      ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : ext === "gif" ? "image/gif" : "image/jpeg";
-    res.setHeader("Content-Type", mime);
-    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-    res.send(buffer);
+    buffer = await getStorage().read(key);
   } catch {
     throw ApiError.notFound("Image not found");
   }
+  res.setHeader("Content-Type", imageMimeForKey(key));
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.send(buffer);
 }
 
 // --- Admin: modules -----------------------------------------------------------

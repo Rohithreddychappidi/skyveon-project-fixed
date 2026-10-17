@@ -41,3 +41,27 @@ export const defaultHomeContent: HomeCmsContent = {
   },
   defaultTheme: "light",
 };
+
+// Shallow-merges saved content over the defaults so new fields added to
+// HomeCmsContent later don't break older data saved before the change.
+export function mergeWithDefaults(saved: Partial<HomeCmsContent>): HomeCmsContent {
+  return {
+    ...defaultHomeContent,
+    ...saved,
+    brand: { ...defaultHomeContent.brand, ...saved.brand },
+    hero: {
+      ...defaultHomeContent.hero,
+      ...saved.hero,
+      imageGallery: saved.hero?.imageGallery ?? defaultHomeContent.hero.imageGallery,
+      mobileImageGallery: saved.hero?.mobileImageGallery ?? defaultHomeContent.hero.mobileImageGallery,
+    },
+    about: {
+      ...defaultHomeContent.about,
+      ...saved.about,
+      highlights: saved.about?.highlights ?? defaultHomeContent.about.highlights,
+      imageGallery: saved.about?.imageGallery ?? defaultHomeContent.about.imageGallery,
+    },
+    coursesSection: { ...defaultHomeContent.coursesSection, ...saved.coursesSection },
+    footer: { ...defaultHomeContent.footer, ...saved.footer },
+  };
+}

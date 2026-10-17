@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { asyncHandler } from "../../lib/asyncHandler";
-import { requireAuth, requireRole, requirePermission } from "../../middleware/auth";
+import { requireAuth, requireRole, requirePermission, requireMasterAdmin } from "../../middleware/auth";
 import * as controller from "./users.controller";
 
 export const usersRouter = Router();
@@ -12,6 +12,8 @@ usersRouter.post("/", asyncHandler(controller.create));
 usersRouter.patch("/:id", asyncHandler(controller.update));
 usersRouter.patch("/:id/status", asyncHandler(controller.setStatus));
 usersRouter.delete("/:id", asyncHandler(controller.remove));
+// Irreversible — master admin only, matching the admin UI.
+usersRouter.delete("/:id/permanent", requireMasterAdmin, asyncHandler(controller.removePermanently));
 usersRouter.post("/:id/resend-setup", asyncHandler(controller.resendSetup));
 
 export const departmentsRouter = Router();

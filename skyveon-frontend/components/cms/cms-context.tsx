@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { HomeCmsContent } from "@/lib/cms-types";
-import { defaultHomeContent } from "@/lib/cms-data";
+import { defaultHomeContent, mergeWithDefaults } from "@/lib/cms-data";
 import { apiFetch, ApiError } from "@/lib/api";
 
 interface CmsContextValue {
@@ -17,30 +17,6 @@ interface CmsContextValue {
 }
 
 const CmsContext = createContext<CmsContextValue | null>(null);
-
-// Shallow-merges saved content over the defaults so new fields added to
-// HomeCmsContent later don't break older data saved before the change.
-function mergeWithDefaults(saved: Partial<HomeCmsContent>): HomeCmsContent {
-  return {
-    ...defaultHomeContent,
-    ...saved,
-    brand: { ...defaultHomeContent.brand, ...saved.brand },
-    hero: {
-      ...defaultHomeContent.hero,
-      ...saved.hero,
-      imageGallery: saved.hero?.imageGallery ?? defaultHomeContent.hero.imageGallery,
-      mobileImageGallery: saved.hero?.mobileImageGallery ?? defaultHomeContent.hero.mobileImageGallery,
-    },
-    about: {
-      ...defaultHomeContent.about,
-      ...saved.about,
-      highlights: saved.about?.highlights ?? defaultHomeContent.about.highlights,
-      imageGallery: saved.about?.imageGallery ?? defaultHomeContent.about.imageGallery,
-    },
-    coursesSection: { ...defaultHomeContent.coursesSection, ...saved.coursesSection },
-    footer: { ...defaultHomeContent.footer, ...saved.footer },
-  };
-}
 
 export function CmsProvider({ children }: { children: React.ReactNode }) {
   const [content, setContentState] = useState<HomeCmsContent>(defaultHomeContent);
