@@ -17,7 +17,7 @@ const envSchema = z.object({
 
   STORAGE_DRIVER: z.enum(["local", "b2"]).default("local"),
   UPLOADS_DIR: z.string().default("uploads"),
-  MAX_UPLOAD_MB: z.coerce.number().default(200),
+  MAX_UPLOAD_MB: z.coerce.number().default(2048),
 
   // Backblaze B2 — via its S3-compatible API, so the driver is just a
   // normal S3 client pointed at B2's endpoint. Only needed when

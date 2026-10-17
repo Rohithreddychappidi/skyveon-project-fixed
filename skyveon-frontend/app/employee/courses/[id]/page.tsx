@@ -56,7 +56,7 @@ export default function LessonViewerPage() {
     }
   }
 
-  const activeLesson = course?.lessons.find((l) => l.id === activeLessonId) ?? null;
+  const activeLesson = course?.lessons?.find((l) => l.id === activeLessonId) ?? null;
 
   const loadCourse = useCallback(async () => {
     const body = await api.get(`/api/courses/mine/${params.id}`);
@@ -66,8 +66,10 @@ export default function LessonViewerPage() {
 
   useEffect(() => {
     loadCourse().then((c) => {
-      const firstIncomplete = c.lessons.find((l: Lesson) => l.progress?.status !== "COMPLETED");
-      setActiveLessonId((firstIncomplete ?? c.lessons[0])?.id ?? null);
+      if (!c) return;
+      const cLessons = c.lessons ?? [];
+      const firstIncomplete = cLessons.find((l: Lesson) => l.progress?.status !== "COMPLETED");
+      setActiveLessonId((firstIncomplete ?? cLessons[0])?.id ?? null);
     });
   }, [loadCourse]);
 
@@ -228,7 +230,9 @@ export default function LessonViewerPage() {
 
   if (!course) return <p className="text-sm text-slate">Loading…</p>;
 
-  const completedCount = course.lessons.filter((l) => l.progress?.status === "COMPLETED").length;
+  const lessons = course.lessons ?? [];
+  const modules = course.modules ?? [];
+  const completedCount = lessons.filter((l) => l.progress?.status === "COMPLETED").length;
 
   return (
     <div className="grid lg:grid-cols-[280px_1fr] gap-6">
@@ -236,14 +240,14 @@ export default function LessonViewerPage() {
         <div className="p-4 border-b border-slate-100">
           <h2 className="font-display font-semibold text-ink text-sm">{course.title}</h2>
           <p className="text-xs text-slate mt-0.5">
-            {completedCount}/{course.lessons.length} lessons complete
+            {completedCount}/{lessons.length} lessons complete
           </p>
         </div>
         <div className="flex flex-col divide-y divide-slate-50">
-          {[...course.modules]
+          {[...modules]
             .sort((a, b) => a.order - b.order)
             .map((mod) => {
-              const modLessons = course.lessons.filter((l) => l.moduleId === mod.id);
+              const modLessons = lessons.filter((l) => l.moduleId === mod.id);
               if (modLessons.length === 0) return null;
               return (
                 <div key={mod.id}>
@@ -281,7 +285,7 @@ export default function LessonViewerPage() {
               );
             })}
 
-          {course.lessons
+          {lessons
             .filter((l) => !l.moduleId)
             .map((lesson) => {
               const status = lesson.progress?.status ?? "NOT_STARTED";

@@ -59,7 +59,7 @@ export default function EmployeeDashboard() {
                   <div className="flex items-center justify-between mt-2">
                     <span className="flex items-center gap-1 text-xs text-slate font-mono">
                       <Layers size={12} />
-                      {course.progress?.completedLessons ?? 0}/{course.progress?.totalLessons ?? course.lessons.length} lessons
+                      {course.progress?.completedLessons ?? 0}/{course.progress?.totalLessons ?? (course.lessons?.length ?? 0)} lessons
                     </span>
                   </div>
                 </div>

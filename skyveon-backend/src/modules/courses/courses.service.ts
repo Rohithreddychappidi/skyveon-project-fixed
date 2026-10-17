@@ -284,7 +284,10 @@ export async function getCourseForEmployee(courseId: string, employeeId: string,
 
   const course = await prisma.course.findFirst({
     where: { id: courseId, isDeleted: false },
-    include: { lessons: { where: { isDeleted: false }, orderBy: { order: "asc" } } },
+    include: {
+      lessons: { where: { isDeleted: false }, orderBy: { order: "asc" } },
+      modules: { where: { isDeleted: false }, orderBy: { order: "asc" } },
+    },
   });
   if (!course) throw ApiError.notFound("Course not found");
 

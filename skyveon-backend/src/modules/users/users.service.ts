@@ -36,7 +36,37 @@ export async function listEmployees(params: { search?: string; status?: "ACTIVE"
 
 export async function createEmployee(input: { name: string; email: string; departmentId?: string; role?: "ADMIN" | "EMPLOYEE" }) {
   const existing = await prisma.user.findUnique({ where: { email: input.email.toLowerCase() } });
-  if (existing) throw ApiError.conflict("A user with this email already exists");
+  if (existing) {
+    if (existing.isDeleted) {
+      const restored = await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          name: input.name,
+          departmentId: input.departmentId,
+          role: input.role ?? "EMPLOYEE",
+          status: "ACTIVE",
+          isDeleted: false,
+          passwordHash: null,
+        },
+      });
+      await sendSetupLink(restored.id);
+      return restored;
+    }
+    if (!existing.passwordHash) {
+      const updated = await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          name: input.name,
+          departmentId: input.departmentId,
+          role: input.role ?? existing.role,
+          status: "ACTIVE",
+        },
+      });
+      await sendSetupLink(updated.id);
+      return updated;
+    }
+    throw ApiError.conflict("An active user with this email already exists");
+  }
 
   const user = await prisma.user.create({
     data: {
@@ -92,6 +122,11 @@ export async function listDepartments() {
 
 export async function createDepartment(name: string) {
   const existing = await prisma.department.findUnique({ where: { name } });
-  if (existing) throw ApiError.conflict("A department with this name already exists");
+  if (existing) {
+    if (existing.isDeleted) {
+      return prisma.department.update({ where: { id: existing.id }, data: { isDeleted: false } });
+    }
+    throw ApiError.conflict("A department with this name already exists");
+  }
   return prisma.department.create({ data: { name } });
 }
