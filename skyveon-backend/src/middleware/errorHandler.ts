@@ -35,6 +35,19 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     return res.status(400).json({ error: `Upload failed: ${err.message}` });
   }
 
+  // Body-parser errors (malformed JSON, oversized bodies) are client errors
+  // carrying their own status — they used to fall through to a 500.
+  const httpErr = err as { type?: string; status?: number; expose?: boolean };
+  if (httpErr?.type === "entity.parse.failed") {
+    return res.status(400).json({ error: "Malformed JSON in request body." });
+  }
+  if (httpErr?.type === "entity.too.large") {
+    return res.status(413).json({ error: "Request body is too large." });
+  }
+  if (httpErr?.expose && typeof httpErr.status === "number" && httpErr.status >= 400 && httpErr.status < 500) {
+    return res.status(httpErr.status).json({ error: (err as Error).message });
+  }
+
   if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
     return res.status(404).json({ error: "Not found" });
   }

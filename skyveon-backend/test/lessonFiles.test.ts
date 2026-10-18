@@ -9,8 +9,8 @@ describe("assertFileMatchesLessonType", () => {
   });
 
   it("rejects the mismatches that broke production lessons", () => {
-    expect(() => assertFileMatchesLessonType("VIDEO", "Org Assignment.pdf")).toThrow(/VIDEO lesson/);
-    expect(() => assertFileMatchesLessonType("PDF", "FullStack_Class14.mp4")).toThrow(/PDF lesson/);
+    expect(() => assertFileMatchesLessonType("VIDEO", "Org Assignment.pdf")).toThrow(/This is a video lesson/);
+    expect(() => assertFileMatchesLessonType("PDF", "FullStack_Class14.mp4")).toThrow(/This is a PDF lesson/);
   });
 
   it("rejects uploads for types that don't take files", () => {

@@ -12,6 +12,14 @@ const RULES: Partial<Record<LessonType, { extensions: string[]; label: string }>
   IMAGE: { extensions: [".jpg", ".jpeg", ".png", ".gif", ".webp"], label: "an image (JPG, PNG, GIF or WebP)" },
 };
 
+const TYPE_NAMES: Partial<Record<LessonType, string>> = {
+  VIDEO: "a video",
+  PDF: "a PDF",
+  PPT: "a presentation",
+  DOC: "a document",
+  IMAGE: "an image",
+};
+
 export function acceptedExtensions(type: LessonType) {
   return RULES[type]?.extensions ?? [];
 }
@@ -21,7 +29,7 @@ export function assertFileMatchesLessonType(type: LessonType, fileName: string) 
   if (!rule) throw ApiError.badRequest(`${type} lessons don't take a file upload.`);
   const lower = fileName.toLowerCase();
   if (!rule.extensions.some((ext) => lower.endsWith(ext))) {
-    throw ApiError.badRequest(`This is a ${type} lesson — upload ${rule.label}.`);
+    throw ApiError.badRequest(`This is ${TYPE_NAMES[type]} lesson — upload ${rule.label}.`);
   }
 }
 
