@@ -22,7 +22,12 @@ export default function LessonViewerPage() {
   const params = useParams<{ id: string }>();
   const [course, setCourse] = useState<Course | null>(null);
   const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
-  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  // The signed file link is kept together with the lesson it belongs to.
+  // A bare URL state was briefly rendered with the *next* lesson after a
+  // switch (before the effect cleared it), so e.g. an <img> requested the
+  // previous lesson's PDF — and a slow link request could land on the
+  // wrong lesson. Only a link for the active lesson is ever used.
+  const [signed, setSigned] = useState<{ lessonId: string; url: string } | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -68,6 +73,7 @@ export default function LessonViewerPage() {
   }
 
   const activeLesson = course?.lessons?.find((l) => l.id === activeLessonId) ?? null;
+  const signedUrl = signed && signed.lessonId === activeLessonId ? signed.url : null;
 
   const loadCourse = useCallback(async () => {
     const body = await api.get(`/api/courses/mine/${params.id}`);
@@ -95,7 +101,7 @@ export default function LessonViewerPage() {
   // hosted content, fetch a fresh 5-minute signed URL for it.
   useEffect(() => {
     if (!activeLesson) return;
-    setSignedUrl(null);
+    setSigned(null);
     setLinkError(null);
     setActionError(null);
     setLinkOpened(false);
@@ -115,10 +121,11 @@ export default function LessonViewerPage() {
     }
 
     if (activeLesson.type !== "LINK" && activeLesson.type !== "ASSIGNMENT") {
-      fetchSignedUrl(activeLesson.id)
-        .then(setSignedUrl)
+      const lessonId = activeLesson.id;
+      fetchSignedUrl(lessonId)
+        .then((url) => setSigned({ lessonId, url }))
         .catch((err) => {
-          setSignedUrl(null);
+          setSigned(null);
           setLinkError(err instanceof ApiError ? err.message : "Couldn't load this lesson — try again.");
         });
     }
@@ -187,7 +194,7 @@ export default function LessonViewerPage() {
     renewingLinkRef.current = true;
     resumeAtRef.current = video.currentTime || resumeAtRef.current;
     try {
-      setSignedUrl(await fetchSignedUrl(activeLesson.id));
+      setSigned({ lessonId: activeLesson.id, url: await fetchSignedUrl(activeLesson.id) });
     } catch (err) {
       setLinkError(err instanceof ApiError ? err.message : "This video couldn't be loaded — try reopening the lesson.");
     } finally {
