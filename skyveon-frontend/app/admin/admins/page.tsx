@@ -187,7 +187,7 @@ export default function AdminsPage() {
           <div className="w-full max-w-md h-full bg-white border-l border-slate-200 p-6 overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-display font-semibold text-lg text-ink">Add admin</h3>
-              <button onClick={() => setPanelOpen(false)}>
+              <button onClick={() => setPanelOpen(false)} aria-label="Close" title="Close">
                 <X size={20} className="text-slate" />
               </button>
             </div>

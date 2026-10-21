@@ -11,8 +11,10 @@ import { VideoWatermark } from "@/components/employee/video-watermark";
 import { PdfViewer } from "@/components/employee/pdf-viewer";
 import { useAuth } from "@/components/auth/auth-context";
 import { api, apiUrl, ApiError } from "@/lib/api";
+import { useDocumentTitle } from "@/lib/use-document-title";
+import Link from "next/link";
 import type { Course, Lesson } from "@/lib/api-types";
-import { Check, ExternalLink, CircleDashed, CheckCircle2, Lock, EyeOff, Paperclip, X as XIcon, SkipForward, SkipBack, Maximize, Minimize } from "lucide-react";
+import { Check, ExternalLink, CircleDashed, CheckCircle2, Lock, EyeOff, Paperclip, X as XIcon, SkipForward, SkipBack, Maximize, Minimize, ArrowRight, PartyPopper } from "lucide-react";
 
 const CONFIRMABLE_TYPES = ["PDF", "PPT", "DOC", "IMAGE", "LINK", "VIDEO"];
 const VIDEO_COMPLETE_RATIO = 0.9;
@@ -38,6 +40,9 @@ export default function LessonViewerPage() {
   const [assignmentFile, setAssignmentFile] = useState<File | null>(null);
   const [submittingAssignment, setSubmittingAssignment] = useState(false);
   const [lockedNotice, setLockedNotice] = useState<string | null>(null);
+  // A rejected assignment can be revised and submitted again.
+  const [resubmitting, setResubmitting] = useState(false);
+  const lessonCardRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoWrapperRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -107,6 +112,7 @@ export default function LessonViewerPage() {
     setLinkOpened(false);
     setAssignmentResponse("");
     setAssignmentFile(null);
+    setResubmitting(false);
     setLockedNotice(null);
 
     api.post(`/api/progress/${activeLesson.id}/start`).catch((err) => {
@@ -287,6 +293,7 @@ export default function LessonViewerPage() {
       if (assignmentFile) formData.append("file", assignmentFile);
       await api.upload(`/api/progress/${activeLesson.id}/submit-assignment`, formData);
       await loadCourse();
+      setResubmitting(false);
     } catch (err) {
       setLockedNotice(err instanceof ApiError ? err.message : "Couldn't submit — try again.");
     } finally {
@@ -305,12 +312,24 @@ export default function LessonViewerPage() {
     setActiveLessonId(lesson.id);
   }
 
+  function goToLesson(lesson: Lesson) {
+    selectLesson(lesson);
+    // Bring the new lesson's start into view (the button sits at the bottom).
+    requestAnimationFrame(() => lessonCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+
+  useDocumentTitle(course?.title ?? "Course");
+
   if (loadError) return <p className="text-sm text-crimson">{loadError}</p>;
   if (!course) return <p className="text-sm text-slate">Loading…</p>;
 
   const lessons = course.lessons ?? [];
   const modules = course.modules ?? [];
   const completedCount = lessons.filter((l) => l.progress?.status === "COMPLETED").length;
+  const activeIndex = lessons.findIndex((l) => l.id === activeLessonId);
+  const nextLesson = activeIndex >= 0 ? lessons[activeIndex + 1] ?? null : null;
+  const activeDone = activeLesson?.progress?.status === "COMPLETED";
+  const courseDone = lessons.length > 0 && completedCount === lessons.length;
 
   return (
     <div className="grid lg:grid-cols-[280px_1fr] gap-6">
@@ -397,6 +416,7 @@ export default function LessonViewerPage() {
 
       <div>
         {activeLesson ? (
+          <div ref={lessonCardRef} className="scroll-mt-24">
           <Card className="p-6 relative overflow-hidden">
             {/* Deterrent-level content protection: blurs the lesson content
                 when the tab is hidden or dev tools look open. See
@@ -557,7 +577,7 @@ export default function LessonViewerPage() {
                 <div className="rounded-xl border border-slate-200 p-5 mb-4">
                   <p className="text-sm text-ink whitespace-pre-wrap mb-4">{activeLesson.assignmentPrompt}</p>
 
-                  {activeLesson.submission ? (
+                  {activeLesson.submission && !resubmitting ? (
                     <div className="rounded-lg bg-slate-50 p-4">
                       <p className="text-xs text-slate mb-1.5">Your submission</p>
                       {activeLesson.submission.responseText && (
@@ -581,6 +601,24 @@ export default function LessonViewerPage() {
                       >
                         {activeLesson.submission.status.toLowerCase()}
                       </Badge>
+                      {activeLesson.submission.reviewNote && (
+                        <p className="text-sm text-ink mt-3">
+                          <span className="font-medium">Reviewer&apos;s note:</span> {activeLesson.submission.reviewNote}
+                        </p>
+                      )}
+                      {activeLesson.submission.status === "REJECTED" && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="mt-3"
+                          onClick={() => {
+                            setAssignmentResponse(activeLesson.submission?.responseText ?? "");
+                            setResubmitting(true);
+                          }}
+                        >
+                          Revise and resubmit
+                        </Button>
+                      )}
                     </div>
                   ) : (
                     <form onSubmit={handleSubmitAssignment} className="flex flex-col gap-3">
@@ -625,7 +663,18 @@ export default function LessonViewerPage() {
                       >
                         {submittingAssignment ? "Submitting…" : "Submit"}
                       </Button>
-                      <p className="text-xs text-slate">Submitting unlocks the rest of this course.</p>
+                      <p className="text-xs text-slate">
+                        {resubmitting ? (
+                          <>
+                            Your new response replaces the previous one and goes back for review.{" "}
+                            <button type="button" className="text-indigo hover:underline" onClick={() => setResubmitting(false)}>
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          "Submitting unlocks the rest of this course."
+                        )}
+                      </p>
                     </form>
                   )}
                 </div>
@@ -656,8 +705,34 @@ export default function LessonViewerPage() {
                   );
                 })()
               )}
+
+              {activeDone && nextLesson && (
+                <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+                  <p className="text-xs text-slate">Up next: {nextLesson.title}</p>
+                  {nextLesson.locked ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs text-slate">
+                      <Lock size={13} /> Locked until the assignment above is submitted
+                    </span>
+                  ) : (
+                    <Button onClick={() => goToLesson(nextLesson)}>
+                      Next lesson <ArrowRight size={15} />
+                    </Button>
+                  )}
+                </div>
+              )}
+              {activeDone && !nextLesson && courseDone && (
+                <div className="mt-5 rounded-xl bg-green-50 border border-green-200 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+                  <p className="text-sm text-green-800 flex items-center gap-2">
+                    <PartyPopper size={16} /> Course complete — every lesson is done.
+                  </p>
+                  <Link href="/employee" className="text-sm font-medium text-green-800 hover:underline">
+                    Back to My Courses
+                  </Link>
+                </div>
+              )}
             </div>
           </Card>
+          </div>
         ) : (
           <p className="text-sm text-slate">This course has no lessons yet.</p>
         )}

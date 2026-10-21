@@ -26,6 +26,7 @@ export default function EmployeeDashboard() {
   return (
     <div>
       <PageHeader
+        documentTitle="My Courses"
         title={`Welcome back${user ? `, ${user.name.split(" ")[0]}` : ""}`}
         subtitle="Your assigned training, all in one place."
       />

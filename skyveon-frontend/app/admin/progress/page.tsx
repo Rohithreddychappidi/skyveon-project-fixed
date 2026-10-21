@@ -6,6 +6,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ProgressBar } from "@/components/ui/progress";
 import { api, ApiError } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
 import type { CourseOption, ProgressTableRow } from "@/lib/api-types";
 import { statusLabel, statusTone } from "@/components/ui/lesson-icon";
 
@@ -41,6 +43,26 @@ export default function ProgressPage() {
       });
   }, [selectedCourseId]);
 
+  function exportCsv() {
+    if (!rows || rows.length === 0) return;
+    const course = courses.find((c) => c.id === selectedCourseId);
+    const cell = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+    const lines = [
+      ["Course", "Employee", "Email", "Completed lessons", "Total lessons", "Percent", "Status"],
+      ...rows.map((r) => [course?.title ?? "", r.employee.name, r.employee.email, r.completedLessons, r.totalLessons, `${r.percent}%`, statusLabel[r.status]]),
+    ];
+    // BOM so Excel opens accented names correctly.
+    const blob = new Blob(["\ufeff" + lines.map((l) => l.map(cell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const slug = (course?.title ?? "course").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    a.download = `progress-${slug}-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  }
+
   return (
     <div>
       <PageHeader
@@ -48,6 +70,10 @@ export default function ProgressPage() {
         subtitle="Completion by employee for a selected course."
         action={
           courses.length > 0 ? (
+            <>
+            <Button variant="secondary" size="sm" onClick={exportCsv} disabled={!rows || rows.length === 0}>
+              <Download size={14} /> Export CSV
+            </Button>
             <select
               value={selectedCourseId}
               onChange={(e) => setSelectedCourseId(e.target.value)}
@@ -59,6 +85,7 @@ export default function ProgressPage() {
                 </option>
               ))}
             </select>
+            </>
           ) : undefined
         }
       />

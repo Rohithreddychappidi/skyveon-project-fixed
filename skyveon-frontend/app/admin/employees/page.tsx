@@ -27,6 +27,9 @@ export default function EmployeesPage() {
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE" | "PENDING">("ALL");
+  const [deptFilter, setDeptFilter] = useState("");
   const [resendState, setResendState] = useState<Record<string, "sending" | "sent" | "failed">>({});
 
   async function load() {
@@ -129,12 +132,28 @@ export default function EmployeesPage() {
   }
 
   const activeCount = employees.filter((e) => e.status === "ACTIVE").length;
+  const q = search.trim().toLowerCase();
+  const visible = employees.filter((e) => {
+    if (q && !e.name.toLowerCase().includes(q) && !e.email.toLowerCase().includes(q)) return false;
+    if (statusFilter === "ACTIVE" && e.status !== "ACTIVE") return false;
+    if (statusFilter === "INACTIVE" && e.status !== "INACTIVE") return false;
+    if (statusFilter === "PENDING" && e.hasSetPassword) return false;
+    if (deptFilter && e.departmentId !== deptFilter) return false;
+    return true;
+  });
+  const filtering = !!q || statusFilter !== "ALL" || !!deptFilter;
 
   return (
     <div>
       <PageHeader
         title="Employees"
-        subtitle={loading ? "Loading…" : `${employees.length} total · ${activeCount} active`}
+        subtitle={
+          loading
+            ? "Loading…"
+            : filtering
+            ? `${visible.length} of ${employees.length} shown · ${activeCount} active`
+            : `${employees.length} total · ${activeCount} active`
+        }
         action={
           <Button onClick={() => setPanelOpen(true)}>
             <Plus size={16} /> Add employee
@@ -143,6 +162,41 @@ export default function EmployeesPage() {
       />
 
       {loadError && <p className="mb-4 text-sm text-crimson">{loadError}</p>}
+
+      <div className="mb-4 flex flex-col sm:flex-row gap-2">
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name or email"
+          aria-label="Search employees"
+          className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo focus:ring-2 focus:ring-indigo/15"
+        />
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+          aria-label="Filter by status"
+          className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo"
+        >
+          <option value="ALL">All statuses</option>
+          <option value="ACTIVE">Active</option>
+          <option value="INACTIVE">Inactive</option>
+          <option value="PENDING">Setup pending</option>
+        </select>
+        <select
+          value={deptFilter}
+          onChange={(e) => setDeptFilter(e.target.value)}
+          aria-label="Filter by department"
+          className="rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo"
+        >
+          <option value="">All departments</option>
+          {departments.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
@@ -157,7 +211,7 @@ export default function EmployeesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {employees.map((emp) => (
+              {visible.map((emp) => (
                 <tr key={emp.id}>
                   <td className="px-5 py-3.5">
                     <p className="font-medium text-ink">{emp.name}</p>
@@ -224,6 +278,13 @@ export default function EmployeesPage() {
                   </td>
                 </tr>
               )}
+              {!loading && employees.length > 0 && visible.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-5 py-8 text-center text-sm text-slate">
+                    No employees match these filters.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -234,7 +295,7 @@ export default function EmployeesPage() {
           <div className="w-full max-w-md h-full bg-white border-l border-slate-200 p-6 overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-display font-semibold text-lg text-ink">Add employee</h3>
-              <button onClick={() => setPanelOpen(false)}>
+              <button onClick={() => setPanelOpen(false)} aria-label="Close" title="Close">
                 <X size={20} className="text-slate" />
               </button>
             </div>

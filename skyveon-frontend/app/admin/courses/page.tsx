@@ -213,7 +213,7 @@ export default function CoursesPage() {
               <h3 className="font-display font-semibold text-lg text-ink">
                 {editingCourse ? "Edit course" : "New course"}
               </h3>
-              <button onClick={closePanel}>
+              <button onClick={closePanel} aria-label="Close" title="Close">
                 <X size={20} className="text-slate" />
               </button>
             </div>

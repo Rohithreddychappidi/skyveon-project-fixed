@@ -65,7 +65,7 @@ function SidebarContent({
           </div>
         </div>
         {onClose && (
-          <button onClick={onClose} className="text-slate hover:text-ink md:hidden">
+          <button onClick={onClose} className="text-slate hover:text-ink md:hidden" aria-label="Close menu">
             <X size={20} />
           </button>
         )}

@@ -8,7 +8,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LessonTypeIcon, lessonTypeLabel } from "@/components/ui/lesson-icon";
-import { api, ApiError, downloadFile, resolveImageUrl } from "@/lib/api";
+import { api, apiUrl, ApiError, downloadFile, resolveImageUrl, uploadWithProgress } from "@/lib/api";
+import { PdfViewer } from "@/components/employee/pdf-viewer";
 import { IMAGE_ACCEPT, IMAGE_HINT, uploadImageFile } from "@/lib/image-upload";
 import type { Course, Lesson, LessonType, LessonSubmission, Module } from "@/lib/api-types";
 import {
@@ -29,6 +30,7 @@ import {
   FolderPlus,
   Folder,
   ImageIcon,
+  Eye,
 } from "lucide-react";
 
 const LESSON_TYPES: LessonType[] = ["VIDEO", "PDF", "PPT", "DOC", "IMAGE", "LINK", "ASSIGNMENT"];
@@ -144,6 +146,62 @@ function AddLessonForm({
   );
 }
 
+// One employee's submission, with an optional note sent along with the
+// decision (shown to the employee — especially useful when rejecting).
+function SubmissionReview({
+  submission: s,
+  onReview,
+  onDownload,
+}: {
+  submission: LessonSubmission;
+  onReview: (submissionId: string, status: "APPROVED" | "REJECTED", note: string) => void;
+  onDownload: (submission: LessonSubmission) => void;
+}) {
+  const [note, setNote] = useState("");
+  return (
+    <div className="rounded-lg border border-slate-200 p-3">
+      <div className="flex items-center justify-between mb-1.5">
+        <p className="text-xs font-medium text-ink">
+          {s.employee?.name} <span className="text-slate font-normal">· {s.employee?.email}</span>
+        </p>
+        <Badge tone={s.status === "APPROVED" ? "success" : s.status === "REJECTED" ? "warm" : "neutral"}>
+          {s.status.toLowerCase()}
+        </Badge>
+      </div>
+      {s.responseText && <p className="text-sm text-ink whitespace-pre-wrap mb-2">{s.responseText}</p>}
+      {s.fileName && (
+        <button onClick={() => onDownload(s)} className="inline-flex items-center gap-1.5 text-xs text-indigo hover:underline mb-2">
+          <Download size={12} /> {s.fileName}
+        </button>
+      )}
+      {s.reviewNote && s.status !== "SUBMITTED" && (
+        <p className="text-xs text-slate mb-1">
+          <span className="font-medium text-ink">Your note:</span> {s.reviewNote}
+        </p>
+      )}
+      {s.status === "SUBMITTED" && (
+        <div className="flex flex-col gap-2 mt-1">
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={2}
+            placeholder="Note for the employee (optional — recommended when rejecting)"
+            className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:border-indigo focus:ring-2 focus:ring-indigo/15"
+          />
+          <div className="flex gap-3">
+            <button onClick={() => onReview(s.id, "APPROVED", note)} className="inline-flex items-center gap-1 text-xs text-green-700 hover:underline">
+              <Check size={12} /> Approve
+            </button>
+            <button onClick={() => onReview(s.id, "REJECTED", note)} className="inline-flex items-center gap-1 text-xs text-crimson hover:underline">
+              <XIcon size={12} /> Reject
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // A single lesson row — used both inside a module's list and in the
 // ungrouped section. Kept as its own component (module scope, same
 // stable-identity reasoning as above) since it's now rendered from two
@@ -175,6 +233,10 @@ function LessonRow({
   onReviewSubmission,
   onDownloadSubmissionFile,
   formatDuration,
+  uploadProgress,
+  modules,
+  onMoveToModule,
+  onPreview,
 }: {
   lesson: Lesson;
   i: number;
@@ -199,10 +261,15 @@ function LessonRow({
   expandedSubmissions: string | null;
   onToggleSubmissions: (lessonId: string) => void;
   submissions: LessonSubmission[];
-  onReviewSubmission: (submissionId: string, status: "APPROVED" | "REJECTED") => void;
+  onReviewSubmission: (submissionId: string, status: "APPROVED" | "REJECTED", note: string) => void;
   onDownloadSubmissionFile: (submission: LessonSubmission) => void;
   formatDuration: (seconds: number | null | undefined) => string | null;
+  uploadProgress: number | null;
+  modules: Module[];
+  onMoveToModule: (lesson: Lesson, moduleId: string | null) => void;
+  onPreview: (lesson: Lesson) => void;
 }) {
+  const previewable = lesson.type === "LINK" || lesson.type === "ASSIGNMENT" || !!lesson.fileName;
   return (
     <div>
       <div className="py-3 flex items-center gap-3 border-t border-slate-100 first:border-t-0">
@@ -300,7 +367,32 @@ function LessonRow({
           </div>
         </div>
 
-        <div className="flex items-center gap-1 flex-none">
+        <div className="flex items-center gap-1.5 flex-none flex-wrap justify-end">
+          {previewable && (
+            <button
+              onClick={() => onPreview(lesson)}
+              className="inline-flex items-center gap-1 text-xs text-slate hover:text-indigo"
+              title="Preview as an employee sees it"
+            >
+              <Eye size={13} /> Preview
+            </button>
+          )}
+          {modules.length > 0 && (
+            <select
+              value={lesson.moduleId ?? ""}
+              onChange={(e) => onMoveToModule(lesson, e.target.value || null)}
+              aria-label={`Module for ${lesson.title}`}
+              title="Move to another module"
+              className="max-w-[9rem] rounded border border-slate-200 bg-white px-1 py-0.5 text-xs text-slate outline-none focus:border-indigo"
+            >
+              {modules.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.title}
+                </option>
+              ))}
+              <option value="">Ungrouped</option>
+            </select>
+          )}
           {lesson.type === "ASSIGNMENT" && (
             <button
               onClick={() => onToggleSubmissions(lesson.id)}
@@ -324,66 +416,37 @@ function LessonRow({
               />
               <span className="inline-flex items-center gap-1 text-xs text-slate hover:text-indigo">
                 <Upload size={13} />
-                {uploadingLessonId === lesson.id ? "Uploading…" : "Upload"}
+                {uploadingLessonId === lesson.id ? `Uploading ${uploadProgress ?? 0}%` : "Upload"}
               </span>
             </label>
           )}
           {lesson.conversionStatus === "FAILED" && (
-            <button onClick={() => onRetryConversion(lesson.id)} className="text-slate hover:text-indigo" title="Retry conversion">
+            <button onClick={() => onRetryConversion(lesson.id)} className="text-slate hover:text-indigo" title="Retry conversion" aria-label="Retry conversion">
               <RefreshCw size={14} />
             </button>
           )}
-          <button onClick={() => onMove(lesson, -1)} disabled={i === 0} className="text-slate hover:text-ink disabled:opacity-30">
+          <button onClick={() => onMove(lesson, -1)} disabled={i === 0} className="text-slate hover:text-ink disabled:opacity-30" title="Move up" aria-label={`Move ${lesson.title} up`}>
             <ArrowUp size={14} />
           </button>
-          <button onClick={() => onMove(lesson, 1)} disabled={i === count - 1} className="text-slate hover:text-ink disabled:opacity-30">
+          <button onClick={() => onMove(lesson, 1)} disabled={i === count - 1} className="text-slate hover:text-ink disabled:opacity-30" title="Move down" aria-label={`Move ${lesson.title} down`}>
             <ArrowDown size={14} />
           </button>
-          <button onClick={() => onRemove(lesson.id)} className="text-slate hover:text-crimson">
+          <button onClick={() => onRemove(lesson.id)} className="text-slate hover:text-crimson" title="Remove lesson" aria-label={`Remove ${lesson.title}`}>
             <Trash2 size={14} />
           </button>
         </div>
       </div>
+      {uploadingLessonId === lesson.id && (
+        <div className="ml-11 -mt-1 mb-2 h-1.5 rounded-full bg-slate-100 overflow-hidden" role="progressbar" aria-valuenow={uploadProgress ?? 0} aria-valuemin={0} aria-valuemax={100} aria-label="Upload progress">
+          <div className="h-full bg-indigo transition-all" style={{ width: `${uploadProgress ?? 0}%` }} />
+        </div>
+      )}
 
       {expandedSubmissions === lesson.id && (
         <div className="pb-4 pl-11 flex flex-col gap-2">
           {submissions.length === 0 && <p className="text-xs text-slate">No submissions yet.</p>}
-          {submissions.map((s) => (
-            <div key={s.id} className="rounded-lg border border-slate-200 p-3">
-              <div className="flex items-center justify-between mb-1.5">
-                <p className="text-xs font-medium text-ink">
-                  {s.employee?.name} <span className="text-slate font-normal">· {s.employee?.email}</span>
-                </p>
-                <Badge tone={s.status === "APPROVED" ? "success" : s.status === "REJECTED" ? "warm" : "neutral"}>
-                  {s.status.toLowerCase()}
-                </Badge>
-              </div>
-              {s.responseText && <p className="text-sm text-ink whitespace-pre-wrap mb-2">{s.responseText}</p>}
-              {s.fileName && (
-                <button
-                  onClick={() => onDownloadSubmissionFile(s)}
-                  className="inline-flex items-center gap-1.5 text-xs text-indigo hover:underline mb-2"
-                >
-                  <Download size={12} /> {s.fileName}
-                </button>
-              )}
-              {s.status === "SUBMITTED" && (
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => onReviewSubmission(s.id, "APPROVED")}
-                    className="inline-flex items-center gap-1 text-xs text-green-700 hover:underline"
-                  >
-                    <Check size={12} /> Approve
-                  </button>
-                  <button
-                    onClick={() => onReviewSubmission(s.id, "REJECTED")}
-                    className="inline-flex items-center gap-1 text-xs text-crimson hover:underline"
-                  >
-                    <XIcon size={12} /> Reject
-                  </button>
-                </div>
-              )}
-            </div>
+          {submissions.map((sub) => (
+            <SubmissionReview key={sub.id} submission={sub} onReview={onReviewSubmission} onDownload={onDownloadSubmissionFile} />
           ))}
         </div>
       )}
@@ -415,6 +478,8 @@ export default function CourseDetailPage() {
   const [addTarget, setAddTarget] = useState<{ moduleId: string | null; position: number } | null>(null);
   const [newLesson, setNewLesson] = useState<NewLessonState>(EMPTY_NEW_LESSON);
   const [uploadingLessonId, setUploadingLessonId] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [preview, setPreview] = useState<{ lesson: Lesson; url: string | null; error: string | null } | null>(null);
   const [expandedSubmissions, setExpandedSubmissions] = useState<string | null>(null);
   const [submissions, setSubmissions] = useState<LessonSubmission[]>([]);
   const [editingDurationId, setEditingDurationId] = useState<string | null>(null);
@@ -613,12 +678,14 @@ export default function CourseDetailPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      await api.upload(`/api/courses/lessons/${lessonId}/upload`, formData);
+      setUploadProgress(0);
+      await uploadWithProgress(`/api/courses/lessons/${lessonId}/upload`, formData, setUploadProgress);
       await load();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "Upload failed — try again.");
     } finally {
       setUploadingLessonId(null);
+      setUploadProgress(null);
     }
   }
 
@@ -691,9 +758,12 @@ export default function CourseDetailPage() {
     }, "Couldn't load submissions.");
   }
 
-  async function reviewSubmission(submissionId: string, status: "APPROVED" | "REJECTED") {
+  async function reviewSubmission(submissionId: string, status: "APPROVED" | "REJECTED", note: string) {
     await run(async () => {
-      const body = await api.patch(`/api/courses/submissions/${submissionId}/review`, { status });
+      const body = await api.patch(`/api/courses/submissions/${submissionId}/review`, {
+        status,
+        reviewNote: note.trim() || undefined,
+      });
       setSubmissions((prev) => prev.map((s) => (s.id === submissionId ? body.submission : s)));
     }, "Couldn't save the review.");
   }
@@ -704,6 +774,35 @@ export default function CourseDetailPage() {
       await downloadFile(`/api/courses/submissions/${submission.id}/file`, submission.fileName);
     } catch {
       setError("Couldn't download that file.");
+    }
+  }
+
+  /** Moves a lesson to the end of another module (or to the ungrouped list), keeping the course order valid. */
+  async function moveToModule(lesson: Lesson, moduleId: string | null) {
+    if (!course || (lesson.moduleId ?? null) === moduleId) return;
+    const modules = sortedModulesOf(course);
+    const lessonsByModule = new Map(modules.map((m) => [m.id, lessonsInModule(m).filter((l) => l.id !== lesson.id)]));
+    let ungrouped = lessonsInModule(null).filter((l) => l.id !== lesson.id);
+    const moved = { ...lesson, moduleId };
+    if (moduleId) lessonsByModule.set(moduleId, [...(lessonsByModule.get(moduleId) ?? []), moved]);
+    else ungrouped = [...ungrouped, moved];
+    await run(async () => {
+      await api.patch(`/api/courses/lessons/${lesson.id}`, { moduleId });
+      await flattenAndPersistOrder({ modules, lessonsByModule, ungrouped });
+    }, "Couldn't move the lesson.");
+  }
+
+  async function openPreview(lesson: Lesson) {
+    if (lesson.type === "LINK" || lesson.type === "ASSIGNMENT") {
+      setPreview({ lesson, url: null, error: null });
+      return;
+    }
+    setPreview({ lesson, url: null, error: null });
+    try {
+      const body = await api.get(`/api/files/${lesson.id}/link`);
+      setPreview({ lesson, url: apiUrl(body.path), error: null });
+    } catch (err) {
+      setPreview({ lesson, url: null, error: err instanceof ApiError ? err.message : "Couldn't load this lesson." });
     }
   }
 
@@ -812,6 +911,49 @@ export default function CourseDetailPage() {
         </div>
       )}
 
+      {preview && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-ink/40 p-4" onClick={() => setPreview(null)}>
+          <div
+            role="dialog"
+            aria-label={`Preview: ${preview.lesson.title}`}
+            className="w-full max-w-4xl max-h-[92vh] overflow-hidden rounded-2xl bg-white flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+              <div className="min-w-0">
+                <p className="text-xs text-slate">Preview — as employees see it</p>
+                <h3 className="font-display font-semibold text-ink truncate">{preview.lesson.title}</h3>
+              </div>
+              <button onClick={() => setPreview(null)} aria-label="Close preview" title="Close">
+                <XIcon size={20} className="text-slate" />
+              </button>
+            </div>
+            <div className="p-5 overflow-auto">
+              {preview.error ? (
+                <p className="text-sm text-crimson">{preview.error}</p>
+              ) : preview.lesson.type === "ASSIGNMENT" ? (
+                <p className="text-sm text-ink whitespace-pre-wrap">{preview.lesson.assignmentPrompt}</p>
+              ) : preview.lesson.type === "LINK" ? (
+                <a href={preview.lesson.linkUrl ?? "#"} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-indigo hover:underline">
+                  <ExternalLink size={14} /> {preview.lesson.linkUrl}
+                </a>
+              ) : !preview.url ? (
+                <p className="text-sm text-slate">Loading…</p>
+              ) : preview.lesson.type === "VIDEO" ? (
+                <video src={preview.url} controls className="w-full rounded-lg bg-ink aspect-video" />
+              ) : preview.lesson.type === "IMAGE" ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={preview.url} alt={preview.lesson.title} className="w-full rounded-lg" />
+              ) : (
+                <div style={{ height: "70vh" }} className="rounded-lg border border-slate-200 overflow-hidden">
+                  <PdfViewer url={preview.url} title={preview.lesson.title} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Course cover image */}
       {course.imageUrl && (
         <div className="mb-6 rounded-xl overflow-hidden border border-slate-200 h-40">
@@ -833,7 +975,7 @@ export default function CourseDetailPage() {
           >
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-display font-semibold text-lg text-ink">Edit course</h3>
-              <button onClick={() => setEditPanelOpen(false)}>
+              <button onClick={() => setEditPanelOpen(false)} aria-label="Close" title="Close">
                 <XIcon size={20} className="text-slate" />
               </button>
             </div>
@@ -980,6 +1122,8 @@ export default function CourseDetailPage() {
                       onClick={() => moveModule(mod, -1)}
                       disabled={mi === 0}
                       className="text-slate hover:text-ink disabled:opacity-30"
+                      title="Move module up"
+                      aria-label={`Move module ${mod.title} up`}
                     >
                       <ArrowUp size={14} />
                     </button>
@@ -987,10 +1131,12 @@ export default function CourseDetailPage() {
                       onClick={() => moveModule(mod, 1)}
                       disabled={mi === sortedModules.length - 1}
                       className="text-slate hover:text-ink disabled:opacity-30"
+                      title="Move module down"
+                      aria-label={`Move module ${mod.title} down`}
                     >
                       <ArrowDown size={14} />
                     </button>
-                    <button onClick={() => removeModule(mod.id)} className="text-slate hover:text-crimson">
+                    <button onClick={() => removeModule(mod.id)} className="text-slate hover:text-crimson" title="Remove module" aria-label={`Remove module ${mod.title}`}>
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -1035,6 +1181,10 @@ export default function CourseDetailPage() {
                         onReviewSubmission={reviewSubmission}
                         onDownloadSubmissionFile={downloadSubmissionFile}
                         formatDuration={formatDuration}
+                        uploadProgress={uploadProgress}
+                        modules={sortedModules}
+                        onMoveToModule={moveToModule}
+                        onPreview={openPreview}
                       />
                       <InsertDivider
                         position={i + 1}
@@ -1109,6 +1259,10 @@ export default function CourseDetailPage() {
                 onReviewSubmission={reviewSubmission}
                 onDownloadSubmissionFile={downloadSubmissionFile}
                 formatDuration={formatDuration}
+                uploadProgress={uploadProgress}
+                modules={sortedModules}
+                onMoveToModule={moveToModule}
+                onPreview={openPreview}
               />
               <InsertDivider
                 position={i + 1}

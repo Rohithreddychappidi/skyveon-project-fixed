@@ -53,7 +53,12 @@ export default function AdminDashboard() {
     if (canEmployees) api.get("/api/lookups/employees").then((b) => setEmployees(b.employees)).catch(() => {});
     if (canCourses) api.get("/api/lookups/courses").then((b) => setCourses(b.courses)).catch(() => {});
     if (canAssignments) api.get("/api/assignments").then((b) => setAssignments(b.assignments)).catch(() => {});
-    if (canActivity) api.get("/api/activity?take=6").then((b) => setActivity(b.logs)).catch(() => setActivity([]));
+    // Routine sign-ins crowded out course activity; show the 6 most recent other events.
+    if (canActivity)
+      api
+        .get("/api/activity?take=60")
+        .then((b) => setActivity((b.logs as ActivityEntry[]).filter((l) => l.action !== "auth.login").slice(0, 6)))
+        .catch(() => setActivity([]));
     if (canProgress) api.get("/api/progress/overview").then((b) => setOverallPercent(b.percent)).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);

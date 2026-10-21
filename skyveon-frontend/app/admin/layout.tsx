@@ -12,6 +12,7 @@ import {
   BarChart3,
   LayoutTemplate,
   ShieldCheck,
+  UserCircle,
 } from "lucide-react";
 
 interface AdminNavItem extends NavItem {
@@ -29,6 +30,7 @@ const navItems: AdminNavItem[] = [
   { label: "Progress", href: "/admin/progress", icon: BarChart3, requires: "VIEW_PROGRESS" },
   { label: "Home Page CMS", href: "/admin/cms", icon: LayoutTemplate, requires: "MANAGE_CMS" },
   { label: "Admins", href: "/admin/admins", icon: ShieldCheck, masterAdminOnly: true },
+  { label: "Profile", href: "/admin/profile", icon: UserCircle },
 ];
 
 function AdminShell({ children }: { children: React.ReactNode }) {

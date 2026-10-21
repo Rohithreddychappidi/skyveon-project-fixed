@@ -949,6 +949,8 @@ export default function HomeCmsPage() {
                       <button
                         type="button"
                         onClick={() => moveCourse(c.id, -1)}
+                        title="Move up"
+                        aria-label={`Move ${c.title} up`}
                         disabled={idx === 0}
                         className="text-slate hover:text-ink disabled:opacity-30"
                       >
@@ -957,6 +959,8 @@ export default function HomeCmsPage() {
                       <button
                         type="button"
                         onClick={() => moveCourse(c.id, 1)}
+                        title="Move down"
+                        aria-label={`Move ${c.title} down`}
                         disabled={idx === featured.length - 1}
                         className="text-slate hover:text-ink disabled:opacity-30"
                       >

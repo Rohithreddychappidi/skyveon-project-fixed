@@ -173,6 +173,54 @@ export async function downloadFile(path: string, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Multipart upload that reports progress (0–100). fetch() can't observe
+ * upload progress, so this uses XMLHttpRequest — lesson videos can be up to
+ * 2 GB, and "Uploading…" with no feedback looked stuck. Retries once after
+ * refreshing an expired session, like apiFetch.
+ */
+export function uploadWithProgress(path: string, formData: FormData, onProgress: (percent: number) => void): Promise<any> {
+  const send = () =>
+    new Promise<{ status: number; body: any }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${API_BASE_URL}${path}`);
+      xhr.withCredentials = true;
+      if (accessToken) xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)));
+      };
+      xhr.onload = () => {
+        let body: any = null;
+        try {
+          body = JSON.parse(xhr.responseText);
+        } catch {
+          // non-JSON response
+        }
+        resolve({ status: xhr.status, body });
+      };
+      xhr.onerror = () => reject(new ApiError(0, "Upload failed — check your connection and try again."));
+      xhr.send(formData);
+    });
+
+  return (async () => {
+    let res = await send();
+    if (res.status === 401) {
+      const refreshed = await refreshAccessToken();
+      if (!refreshed) {
+        setAccessToken(null);
+        onUnauthorized?.();
+        throw new ApiError(401, "Your session has expired — sign in again.");
+      }
+      onProgress(0);
+      res = await send();
+    }
+    if (res.status === 413) throw new ApiError(413, "That file is too large to upload.");
+    if (res.status < 200 || res.status >= 300) throw new ApiError(res.status, res.body?.error || "Upload failed — try again.");
+    onProgress(100);
+    return res.body;
+  })();
+}
+
 export const api = {
   get: (path: string) => apiFetch(path, { method: "GET" }),
   post: (path: string, body?: unknown) =>
