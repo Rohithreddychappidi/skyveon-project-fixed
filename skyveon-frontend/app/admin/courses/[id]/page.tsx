@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LessonTypeIcon, lessonTypeLabel } from "@/components/ui/lesson-icon";
 import { api, ApiError, downloadFile, resolveImageUrl } from "@/lib/api";
+import { IMAGE_ACCEPT, IMAGE_HINT, uploadImageFile } from "@/lib/image-upload";
 import type { Course, Lesson, LessonType, LessonSubmission, Module } from "@/lib/api-types";
 import {
   Plus,
@@ -460,18 +461,12 @@ export default function CourseDetailPage() {
 
   async function uploadCoverImage(file: File) {
     setUploadingCover(true);
+    setError(null);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      let body: { url: string };
-      try {
-        body = await api.upload("/api/courses/upload-cover-image", fd);
-      } catch {
-        body = await api.upload("/api/cms/upload-image", fd);
-      }
-      setEditForm((f) => ({ ...f, imageUrl: body.url }));
-    } catch {
-      setError("Image upload failed — try again.");
+      const url = await uploadImageFile(file, ["/api/courses/upload-cover-image", "/api/cms/upload-image"]);
+      setEditForm((f) => ({ ...f, imageUrl: url }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The image couldn't be uploaded — try again.");
     } finally {
       setUploadingCover(false);
       if (coverInputRef.current) coverInputRef.current.value = "";
@@ -889,7 +884,7 @@ export default function CourseDetailPage() {
                     <input
                       ref={coverInputRef}
                       type="file"
-                      accept="image/*"
+                      accept={IMAGE_ACCEPT}
                       className="hidden"
                       onChange={(e) => {
                         const f = e.target.files?.[0];
@@ -906,6 +901,7 @@ export default function CourseDetailPage() {
                     </button>
                   )}
                 </div>
+                <p className="text-xs text-slate">{IMAGE_HINT} Press Save changes to apply it to the course.</p>
                 <input
                   value={editForm.imageUrl}
                   onChange={(e) => setEditForm({ ...editForm, imageUrl: e.target.value })}

@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api, ApiError, resolveImageUrl } from "@/lib/api";
+import { IMAGE_ACCEPT, IMAGE_HINT, uploadImageFile } from "@/lib/image-upload";
 import type { Course } from "@/lib/api-types";
 import { Plus, X, BookOpen, Layers, Trash2, Pencil, Upload, ImageIcon } from "lucide-react";
 
@@ -69,18 +70,12 @@ export default function CoursesPage() {
 
   async function uploadCoverImage(file: File) {
     setUploadingImage(true);
+    setError(null);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      let body: { url: string };
-      try {
-        body = await api.upload("/api/courses/upload-cover-image", fd);
-      } catch {
-        body = await api.upload("/api/cms/upload-image", fd);
-      }
-      setForm((f) => ({ ...f, imageUrl: body.url }));
-    } catch {
-      setError("Image upload failed — try again.");
+      const url = await uploadImageFile(file, ["/api/courses/upload-cover-image", "/api/cms/upload-image"]);
+      setForm((f) => ({ ...f, imageUrl: url }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The image couldn't be uploaded — try again.");
     } finally {
       setUploadingImage(false);
       if (imageInputRef.current) imageInputRef.current.value = "";
@@ -276,7 +271,7 @@ export default function CoursesPage() {
                     <input
                       ref={imageInputRef}
                       type="file"
-                      accept="image/*"
+                      accept={IMAGE_ACCEPT}
                       className="hidden"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
@@ -297,6 +292,7 @@ export default function CoursesPage() {
                     </button>
                   )}
                 </div>
+                <p className="text-xs text-slate">{IMAGE_HINT} The image is applied when you save the course.</p>
                 <p className="text-xs text-slate">
                   Or paste a direct URL:
                 </p>

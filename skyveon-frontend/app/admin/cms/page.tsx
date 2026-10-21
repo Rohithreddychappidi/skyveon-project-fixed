@@ -8,6 +8,7 @@ import { useCms } from "@/components/cms/cms-context";
 import { defaultHomeContent } from "@/lib/cms-data";
 import type { HomeCmsContent, ImagePosition } from "@/lib/cms-types";
 import { api, ApiError, resolveImageUrl } from "@/lib/api";
+import { IMAGE_ACCEPT, IMAGE_HINT, uploadImageFile } from "@/lib/image-upload";
 import type { PublicCourse } from "@/lib/api-types";
 import {
   ExternalLink,
@@ -313,7 +314,7 @@ function MultiImageRotationManager({
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*"
+            accept={IMAGE_ACCEPT}
             className="hidden"
             onChange={(e) => {
               if (e.target.files && e.target.files.length > 0) {
@@ -326,6 +327,7 @@ function MultiImageRotationManager({
             <Upload size={14} />
             {uploading ? "Uploading…" : "Upload images (multi-select)"}
           </span>
+          <span className="block mt-1 text-[11px] text-slate">{IMAGE_HINT}</span>
         </label>
 
         <form onSubmit={handleAddUrlSubmit} className="flex-1 flex gap-1.5">
@@ -397,9 +399,7 @@ export default function HomeCmsPage() {
     setUploadingField(field);
     setError(null);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const body = await api.upload("/api/cms/upload-image", formData);
+      const body = { url: await uploadImageFile(file, ["/api/cms/upload-image"]) };
       if (field === "hero") {
         setDraft((d) => ({
           ...d,
@@ -429,23 +429,32 @@ export default function HomeCmsPage() {
         }));
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Upload failed — try again.");
+      setError(err instanceof Error ? err.message : "Upload failed — try again.");
     } finally {
       setUploadingField(null);
     }
   }
 
-  async function uploadMultipleImages(field: "hero" | "heroMobile" | "about", files: FileList) {
+  async function uploadMultipleImages(field: "hero" | "heroMobile" | "about", fileList: FileList) {
+    // Copy before the first await: the picker clears its input right after
+    // calling us, which empties the live FileList — previously only the
+    // first selected image was ever uploaded.
+    const files = Array.from(fileList);
     setUploadingField(field);
     setError(null);
     try {
+      // Upload what can be uploaded; report the rest by name instead of
+      // failing the whole batch on one bad file.
       const urls: string[] = [];
+      const problems: string[] = [];
       for (let i = 0; i < files.length; i++) {
-        const formData = new FormData();
-        formData.append("file", files[i]);
-        const body = await api.upload("/api/cms/upload-image", formData);
-        urls.push(body.url);
+        try {
+          urls.push(await uploadImageFile(files[i], ["/api/cms/upload-image"]));
+        } catch (err) {
+          problems.push(err instanceof Error ? err.message : `"${files[i].name}" couldn't be uploaded.`);
+        }
       }
+      if (problems.length) setError(problems.join(" "));
       if (urls.length === 0) return;
 
       if (field === "hero") {
